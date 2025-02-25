@@ -1,5 +1,5 @@
 using NutritionAmbition.Backend.API.Models;
-using NutritionAmbition.Backend.API.Repos;
+using NutritionAmbition.Backend.API.Repositories;
 using NutritionAmbition.Backend.API.DataContracts;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -11,9 +11,9 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public class AccountsService
     {
-        private readonly AccountsRepo _accountsRepo;
+        private readonly AccountsRepository _accountsRepo;
 
-        public AccountsService(AccountsRepo accountsRepo)
+        public AccountsService(AccountsRepository accountsRepo)
         {
             _accountsRepo = accountsRepo;
         }
@@ -115,6 +115,16 @@ namespace NutritionAmbition.Backend.API.Services
             }
 
             return response;
+        }
+
+        public async Task<Account> GetAccountByGoogleAuthIdAsync(string googleAuthUserId)
+        {
+            if (string.IsNullOrEmpty(googleAuthUserId))
+            {
+                return null;
+            }
+
+            return await _accountsRepo.GetAccountByGoogleAuthUserIdAsync(googleAuthUserId);
         }
 
         // public async Task<(bool IsSuccess, int StatusCode, string Message, object Data)> VerifyGoogleTokenAsync(string idToken)

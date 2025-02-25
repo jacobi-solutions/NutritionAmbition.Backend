@@ -5,14 +5,14 @@ using MongoDB.Driver;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace NutritionAmbition.Backend.API.Repos
+namespace NutritionAmbition.Backend.API.Repositories
 {
-    public class AccountsRepo
+    public class AccountsRepository
     {
         private readonly IMongoCollection<Account> _collection;
         private readonly MongoDBSettings _mongoDBSettings;
 
-        public AccountsRepo(IMongoDatabase database, MongoDBSettings mongoDbSettings)
+        public AccountsRepository(IMongoDatabase database, MongoDBSettings mongoDbSettings)
         {
             _mongoDBSettings = mongoDbSettings;
             _collection = database.GetCollection<Account>(mongoDbSettings.AccountsCollectionName);      

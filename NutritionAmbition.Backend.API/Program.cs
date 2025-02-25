@@ -4,7 +4,7 @@ using Google.Apis.Auth.OAuth2;
 using NutritionAmbition.Backend.API.Services;
 using NutritionAmbition.Backend.API.Settings;
 using Microsoft.Extensions.Options;
-using NutritionAmbition.Backend.API.Repos;
+using NutritionAmbition.Backend.API.Repositories;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using MongoDB.Bson.Serialization.Conventions;
@@ -53,7 +53,7 @@ builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongo
 
 // 🟢 Services and Repos
 builder.Services.AddSingleton<AccountsService>();
-builder.Services.AddSingleton<AccountsRepo>();
+builder.Services.AddSingleton<AccountsRepository>();
 
 // ✅ Initialize Firebase Admin SDK
 var firebaseProjectId = firebaseSettings.ProjectId;
