@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Web;
+using System.Text.Json.Serialization;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -145,6 +146,8 @@ namespace NutritionAmbition.Backend.API.Services
         public string Description { get; set; } = string.Empty;
         public string BrandName { get; set; } = string.Empty;
         public string Ingredients { get; set; } = string.Empty;
+
+        [JsonConverter(typeof(SafeStringConverter))]
         public string FoodCategory { get; set; } = string.Empty;
     }
 
@@ -156,6 +159,7 @@ namespace NutritionAmbition.Backend.API.Services
         public string Ingredients { get; set; } = string.Empty;
         public double? ServingSize { get; set; }
         public string ServingSizeUnit { get; set; } = string.Empty;
+        [JsonConverter(typeof(SafeStringConverter))]
         public string FoodCategory { get; set; } = string.Empty;
         public List<UsdaFoodNutrient> FoodNutrients { get; set; } = new List<UsdaFoodNutrient>();
     }
@@ -181,6 +185,7 @@ namespace NutritionAmbition.Backend.API.Services
         public string Description { get; set; } = string.Empty;
         public string BrandName { get; set; } = string.Empty;
         public string Ingredients { get; set; } = string.Empty;
+        [JsonConverter(typeof(SafeStringConverter))]
         public string FoodCategory { get; set; } = string.Empty;
     }
 
@@ -192,6 +197,7 @@ namespace NutritionAmbition.Backend.API.Services
         public string Ingredients { get; set; } = string.Empty;
         public double? ServingSize { get; set; }
         public string ServingSizeUnit { get; set; } = string.Empty;
+        [JsonConverter(typeof(SafeStringConverter))]
         public string FoodCategory { get; set; } = string.Empty;
         public List<Nutrient> Nutrients { get; set; } = new List<Nutrient>();
     }
