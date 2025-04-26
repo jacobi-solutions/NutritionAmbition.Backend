@@ -136,6 +136,8 @@ namespace NutritionAmbition.Backend.API.Services
         {
             // Parse quantity from string
             double quantity = 1.0;
+            string baseSearchTerm = foodDescription;
+            
             if (!string.IsNullOrEmpty(quantityStr))
             {
                 // Extract numeric part if quantity contains both number and unit
@@ -152,11 +154,15 @@ namespace NutritionAmbition.Backend.API.Services
                 }
             }
 
+            // Remove quantity from food description for search
+            // This ensures we search for "egg" not "2 eggs" when user enters "2 eggs"
+            baseSearchTerm = RemoveQuantityFromDescription(foodDescription);
+            
             // Search for the food in USDA database
-            var searchResults = await _usdaFoodDataService.SearchFoodsAsync(foodDescription, 5);
+            var searchResults = await _usdaFoodDataService.SearchFoodsAsync(baseSearchTerm, 5);
             if (searchResults == null || !searchResults.Any())
             {
-                _logger.LogWarning("No search results found for food: {FoodDescription}", foodDescription);
+                _logger.LogWarning("No search results found for food: {FoodDescription}", baseSearchTerm);
                 return CreateDefaultFoodNutrition(foodDescription, quantityStr, unit);
             }
 
@@ -166,7 +172,7 @@ namespace NutritionAmbition.Backend.API.Services
             
             if (foodDetails == null || foodDetails.Nutrients == null || !foodDetails.Nutrients.Any())
             {
-                _logger.LogWarning("No nutrient data found for food: {FoodDescription}", foodDescription);
+                _logger.LogWarning("No nutrient data found for food: {FoodDescription}", baseSearchTerm);
                 return CreateDefaultFoodNutrition(foodDescription, quantityStr, unit);
             }
 
@@ -188,6 +194,8 @@ namespace NutritionAmbition.Backend.API.Services
         {
             // Parse quantity from string
             double quantity = 1.0;
+            string baseSearchTerm = foodDescription;
+            
             if (!string.IsNullOrEmpty(quantityStr))
             {
                 // Extract numeric part if quantity contains both number and unit
@@ -204,11 +212,15 @@ namespace NutritionAmbition.Backend.API.Services
                 }
             }
 
+            // Remove quantity from food description for search
+            // This ensures we search for "egg" not "2 eggs" when user enters "2 eggs"
+            baseSearchTerm = RemoveQuantityFromDescription(foodDescription);
+            
             // Search for the food in USDA database
-            var searchResults = await _usdaFoodDataService.SearchFoodsAsync(foodDescription, 5);
+            var searchResults = await _usdaFoodDataService.SearchFoodsAsync(baseSearchTerm, 5);
             if (searchResults == null || !searchResults.Any())
             {
-                _logger.LogWarning("No search results found for food: {FoodDescription}", foodDescription);
+                _logger.LogWarning("No search results found for food: {FoodDescription}", baseSearchTerm);
                 return CreateDefaultFoodNutrition(foodDescription, quantityStr, unit);
             }
 
@@ -216,7 +228,7 @@ namespace NutritionAmbition.Backend.API.Services
             int selectedFdcId;
             try
             {
-                selectedFdcId = await _openAiService.SelectBestFoodMatchAsync(foodDescription, searchResults);
+                selectedFdcId = await _openAiService.SelectBestFoodMatchAsync(baseSearchTerm, searchResults);
             }
             catch (Exception ex)
             {
@@ -229,7 +241,7 @@ namespace NutritionAmbition.Backend.API.Services
             
             if (foodDetails == null || foodDetails.Nutrients == null || !foodDetails.Nutrients.Any())
             {
-                _logger.LogWarning("No nutrient data found for selected food: {FoodDescription}", foodDescription);
+                _logger.LogWarning("No nutrient data found for selected food: {FoodDescription}", baseSearchTerm);
                 return CreateDefaultFoodNutrition(foodDescription, quantityStr, unit);
             }
 
@@ -245,6 +257,40 @@ namespace NutritionAmbition.Backend.API.Services
             MapNutrients(foodDetails, foodNutrition, quantity);
 
             return foodNutrition;
+        }
+
+        private string RemoveQuantityFromDescription(string foodDescription)
+        {
+            // Common patterns for quantities at the beginning of food descriptions
+            var patterns = new[]
+            {
+                @"^\d+\s+", // Matches "2 eggs"
+                @"^[\d/]+\s+", // Matches "1/2 cup"
+                @"^[\d\s\.]+\s+", // Matches "1.5 oz" or "1 1/2 cups"
+            };
+
+            string result = foodDescription;
+            foreach (var pattern in patterns)
+            {
+                result = System.Text.RegularExpressions.Regex.Replace(result, pattern, "");
+                // If we've made a change, stop processing
+                if (result != foodDescription)
+                    break;
+            }
+
+            // Convert plural to singular for better search results
+            // This is a simple approach - for a production app, consider using a more robust pluralization library
+            if (result.EndsWith("s") && result.Length > 3)
+            {
+                // Simple check to avoid changing words like "rice" to "ric"
+                var lastTwoChars = result.Substring(result.Length - 2);
+                if (lastTwoChars != "ss" && lastTwoChars != "us" && lastTwoChars != "is")
+                {
+                    result = result.Substring(0, result.Length - 1);
+                }
+            }
+
+            return result;
         }
 
         private void MapNutrients(FoodDetails foodDetails, FoodNutrition foodNutrition, double quantity)
