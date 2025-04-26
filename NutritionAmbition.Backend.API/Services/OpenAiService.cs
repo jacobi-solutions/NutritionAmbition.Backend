@@ -14,6 +14,7 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IOpenAiService
     {
         Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
+        Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults);
     }
 
     public class OpenAiService : IOpenAiService
@@ -121,6 +122,126 @@ namespace NutritionAmbition.Backend.API.Services
                 };
             }
         }
+
+        public async Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults)
+        {
+            try
+            {
+                _logger.LogInformation("Selecting best food match with OpenAI for: {FoodDescription}", foodDescription);
+
+                if (searchResults == null || searchResults.Count == 0)
+                {
+                    throw new ArgumentException("No search results provided");
+                }
+
+                // If only one result, return it
+                if (searchResults.Count == 1)
+                {
+                    return searchResults[0].FdcId;
+                }
+
+                // Format the search results for the prompt
+                var formattedResults = new StringBuilder();
+                for (int i = 0; i < searchResults.Count; i++)
+                {
+                    var result = searchResults[i];
+                    formattedResults.AppendLine($"Option {i + 1}:");
+                    formattedResults.AppendLine($"- Description: {result.Description}");
+                    
+                    if (!string.IsNullOrEmpty(result.BrandName))
+                    {
+                        formattedResults.AppendLine($"- Brand: {result.BrandName}");
+                    }
+                    
+                    if (!string.IsNullOrEmpty(result.FoodCategory))
+                    {
+                        formattedResults.AppendLine($"- Category: {result.FoodCategory}");
+                    }
+                    
+                    if (!string.IsNullOrEmpty(result.Ingredients))
+                    {
+                        formattedResults.AppendLine($"- Ingredients: {result.Ingredients}");
+                    }
+                    
+                    formattedResults.AppendLine();
+                }
+
+                // Create the prompt for OpenAI
+                var messages = new List<object>
+                {
+                    new
+                    {
+                        role = "system",
+                        content = @"You are a nutrition assistant that helps select the most appropriate food item from a list of options based on a user's description. 
+                        Analyze the options and select the one that best matches the user's food description.
+                        Consider factors like food name, brand, category, and ingredients.
+                        Respond with a JSON object containing only the option number (1-based index) of your selection.
+                        Format:
+                        {
+                          ""selectedOption"": 1
+                        }"
+                    },
+                    new
+                    {
+                        role = "user",
+                        content = $"User's food description: {foodDescription}\n\nAvailable options:\n{formattedResults}"
+                    }
+                };
+
+                var requestBody = new
+                {
+                    model = _model,
+                    messages,
+                    temperature = 0.2,
+                    response_format = new { type = "json_object" }
+                };
+
+                var content = new StringContent(
+                    JsonSerializer.Serialize(requestBody),
+                    Encoding.UTF8,
+                    "application/json"
+                );
+
+                _httpClient.DefaultRequestHeaders.Clear();
+                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_openAiSettings.ApiKey}");
+
+                var response = await _httpClient.PostAsync(_openAiSettings.ApiEndpoint, content);
+                response.EnsureSuccessStatusCode();
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var openAiResponse = JsonSerializer.Deserialize<OpenAiResponse>(responseContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (openAiResponse?.Choices == null || openAiResponse.Choices.Count == 0)
+                {
+                    throw new Exception("Invalid response from OpenAI");
+                }
+
+                var aiContent = openAiResponse.Choices[0].Message.Content;
+                var selectionResponse = JsonSerializer.Deserialize<FoodSelectionResponse>(aiContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (selectionResponse == null || selectionResponse.SelectedOption < 1 || selectionResponse.SelectedOption > searchResults.Count)
+                {
+                    _logger.LogWarning("Invalid selection from OpenAI, defaulting to first option");
+                    return searchResults[0].FdcId;
+                }
+
+                // Convert from 1-based to 0-based index
+                int selectedIndex = selectionResponse.SelectedOption - 1;
+                return searchResults[selectedIndex].FdcId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error selecting best food match with OpenAI: {FoodDescription}", foodDescription);
+                // Default to first result in case of error
+                return searchResults[0].FdcId;
+            }
+        }
     }
 
     // OpenAI API response models
@@ -142,5 +263,10 @@ namespace NutritionAmbition.Backend.API.Services
     public class MealItemsResponse
     {
         public List<MealItem> MealItems { get; set; } = new List<MealItem>();
+    }
+
+    public class FoodSelectionResponse
+    {
+        public int SelectedOption { get; set; }
     }
 }

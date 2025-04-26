@@ -10,16 +10,22 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<NutritionApiResponse> GetNutritionDataForParsedFoodAsync(ParseFoodTextResponse parsedFood);
         Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string foodDescription, string quantity = "1", string unit = "serving");
+        Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string foodDescription);
     }
 
     public class NutritionService : INutritionService
     {
         private readonly IUsdaFoodDataService _usdaFoodDataService;
+        private readonly IOpenAiService _openAiService;
         private readonly ILogger<NutritionService> _logger;
 
-        public NutritionService(IUsdaFoodDataService usdaFoodDataService, ILogger<NutritionService> logger)
+        public NutritionService(
+            IUsdaFoodDataService usdaFoodDataService, 
+            IOpenAiService openAiService,
+            ILogger<NutritionService> logger)
         {
             _usdaFoodDataService = usdaFoodDataService;
+            _openAiService = openAiService;
             _logger = logger;
         }
 
@@ -66,7 +72,8 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 response = new NutritionApiResponse
                 {
-                    Foods = new List<FoodNutrition>()
+                    Foods = new List<FoodNutrition>(),
+                    IsSuccess = true
                 };
 
                 if (foodNutrition != null)
@@ -80,6 +87,47 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogError(ex, "Error getting nutrition data for food item: {FoodDescription}", foodDescription);
                 response.AddError($"Error getting nutrition data: {ex.Message}");
+                return response;
+            }
+        }
+
+        public async Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string foodDescription)
+        {
+            var response = new NutritionApiResponse();
+            try
+            {
+                _logger.LogInformation("Processing food text and getting nutrition data: {FoodDescription}", foodDescription);
+                
+                // Step 1: Parse the food text using OpenAI
+                var parsedFood = await _openAiService.ParseFoodTextAsync(foodDescription);
+                if (!parsedFood.Success)
+                {
+                    response.AddError($"Failed to parse food text: {parsedFood.ErrorMessage}");
+                    return response;
+                }
+
+                // Step 2: Get nutrition data for each parsed food item
+                response = new NutritionApiResponse
+                {
+                    Foods = new List<FoodNutrition>(),
+                    IsSuccess = true
+                };
+
+                foreach (var item in parsedFood.MealItems)
+                {
+                    var foodNutrition = await GetFoodNutritionWithAiSelectionAsync(item.Name, item.Quantity);
+                    if (foodNutrition != null)
+                    {
+                        response.Foods.Add(foodNutrition);
+                    }
+                }
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing food text and getting nutrition data: {FoodDescription}", foodDescription);
+                response.AddError($"Error processing food text: {ex.Message}");
                 return response;
             }
         }
@@ -119,6 +167,69 @@ namespace NutritionAmbition.Backend.API.Services
             if (foodDetails == null || foodDetails.Nutrients == null || !foodDetails.Nutrients.Any())
             {
                 _logger.LogWarning("No nutrient data found for food: {FoodDescription}", foodDescription);
+                return CreateDefaultFoodNutrition(foodDescription, quantityStr, unit);
+            }
+
+            // Create FoodNutrition object from USDA data
+            var foodNutrition = new FoodNutrition
+            {
+                Name = foodDetails.Description,
+                Quantity = quantityStr,
+                Unit = unit
+            };
+
+            // Map nutrients to our structure
+            MapNutrients(foodDetails, foodNutrition, quantity);
+
+            return foodNutrition;
+        }
+
+        private async Task<FoodNutrition> GetFoodNutritionWithAiSelectionAsync(string foodDescription, string quantityStr, string unit = "")
+        {
+            // Parse quantity from string
+            double quantity = 1.0;
+            if (!string.IsNullOrEmpty(quantityStr))
+            {
+                // Extract numeric part if quantity contains both number and unit
+                var parts = quantityStr.Trim().Split(' ');
+                if (parts.Length > 0 && double.TryParse(parts[0], out double parsedQuantity))
+                {
+                    quantity = parsedQuantity;
+                    
+                    // If unit wasn't provided but is in the quantity string, extract it
+                    if (string.IsNullOrEmpty(unit) && parts.Length > 1)
+                    {
+                        unit = string.Join(" ", parts.Skip(1));
+                    }
+                }
+            }
+
+            // Search for the food in USDA database
+            var searchResults = await _usdaFoodDataService.SearchFoodsAsync(foodDescription, 5);
+            if (searchResults == null || !searchResults.Any())
+            {
+                _logger.LogWarning("No search results found for food: {FoodDescription}", foodDescription);
+                return CreateDefaultFoodNutrition(foodDescription, quantityStr, unit);
+            }
+
+            // Use OpenAI to select the best match from search results
+            int selectedFdcId;
+            try
+            {
+                selectedFdcId = await _openAiService.SelectBestFoodMatchAsync(foodDescription, searchResults);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error selecting best food match with OpenAI, defaulting to first result");
+                selectedFdcId = searchResults.First().FdcId;
+            }
+
+            // Get details for the selected food
+            var foodDetails = await _usdaFoodDataService.GetFoodDetailsAsync(selectedFdcId);
+            
+            if (foodDetails == null || foodDetails.Nutrients == null || !foodDetails.Nutrients.Any())
+            {
+                _logger.LogWarning("No nutrient data found for selected food: {FoodDescription}", foodDescription);
                 return CreateDefaultFoodNutrition(foodDescription, quantityStr, unit);
             }
 

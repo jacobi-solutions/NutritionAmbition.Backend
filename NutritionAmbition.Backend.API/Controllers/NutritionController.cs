@@ -83,25 +83,14 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized();
             }
 
-            // Step 1: Parse the food text
-            var parsedFood = await _foodParsingService.ParseFoodTextAsync(request.FoodDescription);
-            if (!parsedFood.Success)
-            {
-                return BadRequest(new { error = "Failed to parse food text", details = parsedFood.ErrorMessage });
-            }
-
-            // Step 2: Get nutrition data
-            var nutritionData = await _nutritionService.GetNutritionDataForParsedFoodAsync(parsedFood);
+            // Use the new streamlined method that handles everything automatically
+            var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(request.FoodDescription);
             if (!nutritionData.IsSuccess)
             {
-                return BadRequest(new { error = "Failed to get nutrition data", details = nutritionData.Errors });
+                return BadRequest(new { error = "Failed to process food text and get nutrition data", details = nutritionData.Errors });
             }
 
-            return Ok(new
-            {
-                ParsedFood = parsedFood,
-                NutritionData = nutritionData
-            });
+            return Ok(nutritionData);
         }
     }
 
