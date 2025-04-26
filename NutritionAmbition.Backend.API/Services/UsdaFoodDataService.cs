@@ -6,7 +6,7 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IUsdaFoodDataService
     {
         Task<List<FoodSearchResult>> SearchFoodsAsync(string query, int pageSize = 25);
-        Task<FoodDetails> GetFoodDetailsAsync(string fdcId);
+        Task<FoodDetails> GetFoodDetailsAsync(int fdcId);
     }
 
     public class UsdaFoodDataService : IUsdaFoodDataService
@@ -68,7 +68,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        public async Task<FoodDetails> GetFoodDetailsAsync(string fdcId)
+        public async Task<FoodDetails> GetFoodDetailsAsync(int fdcId)
         {
             try
             {
@@ -141,7 +141,7 @@ namespace NutritionAmbition.Backend.API.Services
 
     public class UsdaFoodSearchResult
     {
-        public string FdcId { get; set; } = string.Empty;
+        public int FdcId { get; set; }
         public string Description { get; set; } = string.Empty;
         public string BrandName { get; set; } = string.Empty;
         public string Ingredients { get; set; } = string.Empty;
@@ -150,7 +150,7 @@ namespace NutritionAmbition.Backend.API.Services
 
     public class UsdaFoodDetails
     {
-        public string FdcId { get; set; } = string.Empty;
+        public int FdcId { get; set; }
         public string Description { get; set; } = string.Empty;
         public string BrandName { get; set; } = string.Empty;
         public string Ingredients { get; set; } = string.Empty;
@@ -177,7 +177,7 @@ namespace NutritionAmbition.Backend.API.Services
     // Our application models
     public class FoodSearchResult
     {
-        public string FdcId { get; set; } = string.Empty;
+        public int FdcId { get; set; }
         public string Description { get; set; } = string.Empty;
         public string BrandName { get; set; } = string.Empty;
         public string Ingredients { get; set; } = string.Empty;
@@ -186,7 +186,7 @@ namespace NutritionAmbition.Backend.API.Services
 
     public class FoodDetails
     {
-        public string FdcId { get; set; } = string.Empty;
+        public int FdcId { get; set; }
         public string Description { get; set; } = string.Empty;
         public string BrandName { get; set; } = string.Empty;
         public string Ingredients { get; set; } = string.Empty;
