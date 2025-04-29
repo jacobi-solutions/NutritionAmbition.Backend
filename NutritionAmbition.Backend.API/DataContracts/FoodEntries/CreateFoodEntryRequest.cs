@@ -1,15 +1,16 @@
+using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 using NutritionAmbition.Backend.API.Models;
 
 namespace NutritionAmbition.Backend.API.DataContracts
 {
+    // Request for creating a new food entry
     public class CreateFoodEntryRequest : Request
     {
-
-        [Required]
-        public string Description { get; set; }
-
+        public string Description { get; set; } = string.Empty;
+        public MealType Meal { get; set; } = MealType.Unknown;
+        public DateTime LoggedDateUtc { get; set; } = DateTime.UtcNow;
         public List<FoodItem> ParsedItems { get; set; } = new List<FoodItem>();
     }
-} 
+}
+

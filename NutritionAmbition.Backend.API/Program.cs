@@ -68,21 +68,24 @@ builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongo
 // 🟢 Services
 builder.Services.AddSingleton<AccountsService>();
 builder.Services.AddSingleton<AiService>(); // Assuming this is the AI Conversation Handler
-builder.Services.AddSingleton<FoodEntryService>();
+builder.Services.AddSingleton<IFoodEntryService, FoodEntryService>();
 builder.Services.AddScoped<IFoodParsingService, FoodParsingService>();
+
+// Register Nutritionix Service with HttpClient
+builder.Services.AddHttpClient<NutritionixClient>();
+builder.Services.AddSingleton<NutritionixClient>();
+builder.Services.AddSingleton<INutritionixService, NutritionixService>();
+builder.Services.AddSingleton<INutritionService, NutritionService>();
 
 // Register OpenAI Service with HttpClient
 builder.Services.AddHttpClient<OpenAiClient>();
 builder.Services.AddSingleton<OpenAiClient>();
 builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
 
-// Register Nutritionix Service with HttpClient
-builder.Services.AddHttpClient<NutritionixClient>();
-builder.Services.AddSingleton<NutritionixClient>();
-builder.Services.AddSingleton<INutritionixService, NutritionixService>();
+
 
 // Register the main Nutrition Service (now using Nutritionix)
-builder.Services.AddSingleton<INutritionService, NutritionService>();
+
 
 // Commenting out potentially conflicting extension methods until verified
 // NutritionAmbition.Backend.API.AiServiceExtensions.AddAiServices(builder.Services);

@@ -47,7 +47,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             _logger.LogInformation("Getting nutrition data for food item: {FoodDescription}", request.FoodDescription);
             
             // Use the updated method that directly queries Nutritionix
-            var response = await _nutritionService.GetNutritionDataForFoodItemAsync(request.FoodDescription);
+            var response = await _nutritionService.GetNutritionDataForFoodItemAsync(account.Id, request.FoodDescription);
                 
             return Ok(response);
         }
@@ -70,7 +70,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             _logger.LogInformation("Processing food text and getting nutrition data: {FoodDescription}", request.FoodDescription);
 
             // Use the streamlined method that handles everything automatically
-            var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(request.FoodDescription);
+            var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(account.Id, request.FoodDescription);
             if (!nutritionData.IsSuccess)
             {
                 return BadRequest(new { error = "Failed to process food text and get nutrition data", details = nutritionData.Errors });

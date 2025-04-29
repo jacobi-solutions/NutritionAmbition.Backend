@@ -99,7 +99,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             }
 
             var response = await _foodEntryService.DeleteFoodEntryAsync(account.Id, request);
-            if (!response.Success)
+            if (!response.IsSuccess)
             {
                 return NotFound();
             }

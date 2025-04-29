@@ -23,11 +23,7 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly IFoodEntryService _foodEntryService; // 🟢 Inject IFoodEntryService
         private readonly ILogger<NutritionService> _logger;
 
-        public NutritionService(
-            INutritionixService nutritionixService, 
-            IOpenAiService openAiService, 
-            IFoodEntryService foodEntryService, // 🟢 Inject IFoodEntryService
-            ILogger<NutritionService> logger)
+        public NutritionService(INutritionixService nutritionixService, IOpenAiService openAiService, IFoodEntryService foodEntryService, ILogger<NutritionService> logger)
         {
             _nutritionixService = nutritionixService;
             _openAiService = openAiService;
@@ -105,7 +101,7 @@ namespace NutritionAmbition.Backend.API.Services
                         };
                         // Call the service to add the entry
                         var saveResponse = await _foodEntryService.AddFoodEntryAsync(accountId, createFoodEntryRequest);
-                        if (!saveResponse.Success)
+                        if (!saveResponse.IsSuccess)
                         {
                             _logger.LogWarning("Failed to save food entry for Account {AccountId}: {Errors}", accountId, string.Join(", ", saveResponse.Errors));
                             // Don't block the response to the user if saving fails, just log it
