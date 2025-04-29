@@ -157,7 +157,7 @@ namespace NutritionAmbition.Backend.API.Services
                     new
                     {
                         role = "user",
-                        content = $"User\s food description: {foodDescription}\n\nAvailable options:\n{formattedResults}"
+                        content = $"Users food description: {foodDescription}\n\nAvailable options:\n{formattedResults}"
                     }
                 };
 
