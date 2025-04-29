@@ -1,29 +1,20 @@
 using System.Threading.Tasks;
 using NutritionAmbition.Backend.API.DataContracts;
-using NutritionAmbition.Backend.API.DataContracts;
-using NutritionAmbition.Backend.API.Services;
+using Microsoft.Extensions.Logging;
 
 namespace NutritionAmbition.Backend.API.Services
 {
-    public interface IFoodParsingService
-    {
-        Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
-        Task<NutritionApiResponse> GetNutritionDataAsync(ParseFoodTextResponse parsedFood);
-    }
-
+    // Implementation class for IFoodParsingService
     public class FoodParsingService : IFoodParsingService
     {
         private readonly IOpenAiService _openAiService;
-        private readonly INutritionService _nutritionService;
         private readonly ILogger<FoodParsingService> _logger;
 
         public FoodParsingService(
             IOpenAiService openAiService, 
-            INutritionService nutritionService,
             ILogger<FoodParsingService> logger)
         {
             _openAiService = openAiService;
-            _nutritionService = nutritionService;
             _logger = logger;
         }
 
@@ -33,10 +24,8 @@ namespace NutritionAmbition.Backend.API.Services
             return await _openAiService.ParseFoodTextAsync(foodDescription);
         }
 
-        public async Task<NutritionApiResponse> GetNutritionDataAsync(ParseFoodTextResponse parsedFood)
-        {
-            _logger.LogInformation("Getting nutrition data for {Count} parsed food items", parsedFood.MealItems.Count);
-            return await _nutritionService.GetNutritionDataForParsedFoodAsync(parsedFood);
-        }
+        // Removed GetNutritionDataAsync method as it's no longer needed here.
+        // The NutritionService.ProcessFoodTextAndGetNutritionAsync handles the end-to-end flow.
     }
 }
+
