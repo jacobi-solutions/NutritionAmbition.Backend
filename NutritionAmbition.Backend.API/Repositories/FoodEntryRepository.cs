@@ -26,7 +26,12 @@ namespace NutritionAmbition.Backend.API.Repositories
             
             if (date.HasValue)
             {
-                filter &= Builders<FoodEntry>.Filter.Eq(entry => entry.LoggedDateUtc.Date, date.Value.Date);
+                // Create a date range for the entire day
+                var startOfDay = date.Value.Date;
+                var endOfDay = startOfDay.AddDays(1).AddTicks(-1);
+                
+                filter &= Builders<FoodEntry>.Filter.Gte(entry => entry.LoggedDateUtc, startOfDay);
+                filter &= Builders<FoodEntry>.Filter.Lte(entry => entry.LoggedDateUtc, endOfDay);
             }
             
             if (mealType.HasValue)
@@ -42,8 +47,13 @@ namespace NutritionAmbition.Backend.API.Repositories
         public async Task<List<FoodEntry>> GetByDateRangeAsync(string accountId, DateTime startDate, DateTime endDate, MealType? mealType = null)
         {
             var filter = Builders<FoodEntry>.Filter.Eq(entry => entry.AccountId, accountId);
-            filter &= Builders<FoodEntry>.Filter.Gte(entry => entry.LoggedDateUtc.Date, startDate.Date);
-            filter &= Builders<FoodEntry>.Filter.Lte(entry => entry.LoggedDateUtc.Date, endDate.Date);
+            
+            // Use start of day for start date and end of day for end date
+            var startOfStartDay = startDate.Date;
+            var endOfEndDay = endDate.Date.AddDays(1).AddTicks(-1);
+            
+            filter &= Builders<FoodEntry>.Filter.Gte(entry => entry.LoggedDateUtc, startOfStartDay);
+            filter &= Builders<FoodEntry>.Filter.Lte(entry => entry.LoggedDateUtc, endOfEndDay);
             
             if (mealType.HasValue)
             {
