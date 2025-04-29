@@ -16,12 +16,12 @@ namespace NutritionAmbition.Backend.API.Services
     public class NutritionService : INutritionService
     {
         private readonly INutritionixService _nutritionixService;
-        private readonly IOpenAiService _openAiService; // Still needed for potential future parsing or validation
+        private readonly IOpenAiService _openAiService; // Now used for coach response
         private readonly ILogger<NutritionService> _logger;
 
         public NutritionService(
             INutritionixService nutritionixService, 
-            IOpenAiService openAiService, // Keep for potential future use
+            IOpenAiService openAiService, 
             ILogger<NutritionService> logger)
         {
             _nutritionixService = nutritionixService;
@@ -80,12 +80,33 @@ namespace NutritionAmbition.Backend.API.Services
                 response.Foods = MapNutritionixResponse(nutritionixResponse);
                 response.IsSuccess = true;
 
+                // 🟢 Generate AI coach response after getting nutrition data
+                if (response.IsSuccess && response.Foods.Any())
+                {
+                    try
+                    {
+                        // Generate AI coach response using the first food item's data
+                        response.AiCoachResponse = await _openAiService.GenerateCoachResponseAsync(foodDescription, response.Foods[0]);
+                    }
+                    catch (Exception coachEx)
+                    {
+                        _logger.LogWarning(coachEx, "Failed to generate AI coach response for: {FoodDescription}", foodDescription);
+                        response.AiCoachResponse = "Logged!"; // Default response on error
+                    }
+                }
+                else
+                {
+                    // Set a default response if nutrition data retrieval failed but we still want a chat message
+                    response.AiCoachResponse = "Sorry, I couldn't find nutrition data for that, but I've noted the description.";
+                }
+
                 return response;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing food text and getting nutrition data: {FoodDescription}", foodDescription);
                 response.AddError($"Error processing food text: {ex.Message}");
+                response.AiCoachResponse = "Sorry, an error occurred while processing your request."; // Error response
                 return response;
             }
         }
@@ -135,3 +156,4 @@ namespace NutritionAmbition.Backend.API.Services
         }
     }
 }
+

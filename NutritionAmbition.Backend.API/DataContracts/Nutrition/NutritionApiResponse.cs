@@ -7,6 +7,10 @@ namespace NutritionAmbition.Backend.API.DataContracts
     {
         [JsonPropertyName("foods")]
         public List<FoodNutrition> Foods { get; set; } = new List<FoodNutrition>();
+
+        // 🟢 Add property for AI coach response
+        [JsonPropertyName("aiCoachResponse")]
+        public string? AiCoachResponse { get; set; }
     }
 
     public class FoodNutrition : Response
@@ -81,3 +85,4 @@ namespace NutritionAmbition.Backend.API.DataContracts
         public double? DailyValuePercent { get; set; }
     }
 }
+

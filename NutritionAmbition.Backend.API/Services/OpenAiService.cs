@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Settings;
 using Microsoft.Extensions.Options;
+using System.Linq; // 🟢 Added for Any()
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -16,6 +17,8 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
         Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults);
+        // 🟢 Add method signature for coach response
+        Task<string> GenerateCoachResponseAsync(string foodDescription, FoodNutrition nutritionData);
     }
 
     public class OpenAiService : IOpenAiService
@@ -33,6 +36,7 @@ namespace NutritionAmbition.Backend.API.Services
 
         public async Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription)
         {
+            // ... existing implementation ...
             try
             {
                 _logger.LogInformation("Parsing food text with OpenAI: {FoodDescription}", foodDescription);
@@ -42,7 +46,7 @@ namespace NutritionAmbition.Backend.API.Services
                     model = _openAiSettings.Model,
                     messages = new[]
                     {
-                        new { role = "system", content = "You are a nutrition assistant..." },
+                        new { role = "system", content = "You are a nutrition assistant..." }, // Keep existing system prompt or refine if needed
                         new { role = "user", content = foodDescription }
                     },
                     temperature = 0.2,
@@ -93,6 +97,7 @@ namespace NutritionAmbition.Backend.API.Services
 
         public async Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults)
         {
+            // ... existing implementation ...
             try
             {
                 _logger.LogInformation("Selecting best food match with OpenAI for: {FoodDescription}", foodDescription);
@@ -140,8 +145,8 @@ namespace NutritionAmbition.Backend.API.Services
                     new
                     {
                         role = "system",
-                        content = @"You are a nutrition assistant that helps select the most appropriate food item from a list of options based on a user's description. 
-                        Analyze the options and select the one that best matches the user's food description.
+                        content = @"You are a nutrition assistant that helps select the most appropriate food item from a list of options based on a user\s description. 
+                        Analyze the options and select the one that best matches the user\s food description.
                         Consider factors like food name, brand, category, and ingredients.
                         Respond with a JSON object containing only the option number (1-based index) of your selection.
                         Format:
@@ -152,13 +157,13 @@ namespace NutritionAmbition.Backend.API.Services
                     new
                     {
                         role = "user",
-                        content = $"User's food description: {foodDescription}\n\nAvailable options:\n{formattedResults}"
+                        content = $"User\s food description: {foodDescription}\n\nAvailable options:\n{formattedResults}"
                     }
                 };
 
                 var requestBody = new
                 {
-                    model = "gpt-4",
+                    model = "gpt-4", // Or use _openAiSettings.Model if appropriate
                     messages,
                     temperature = 0.2,
                     response_format = new { type = "json_object" }
@@ -198,7 +203,66 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogError(ex, "Error selecting best food match with OpenAI: {FoodDescription}", foodDescription);
                 // Default to first result in case of error
-                return searchResults[0].FdcId;
+                return searchResults.Any() ? searchResults[0].FdcId : 0; // Return 0 if searchResults is empty
+            }
+        }
+
+        // 🟢 Implement method to generate coach response
+        public async Task<string> GenerateCoachResponseAsync(string foodDescription, FoodNutrition nutritionData)
+        {
+            try
+            {
+                _logger.LogInformation("Generating AI coach response for: {FoodDescription}", foodDescription);
+
+                // Construct the prompt
+                var prompt = new StringBuilder();
+                prompt.AppendLine("You are a friendly and encouraging nutrition coach. A user has just logged the following food item:");
+                prompt.AppendLine($"- User Input: {foodDescription}");
+                prompt.AppendLine($"- Logged As: {nutritionData.Name} ({nutritionData.Quantity} {nutritionData.Unit})");
+                prompt.AppendLine($"- Calories: {nutritionData.Calories:F0}");
+                prompt.AppendLine($"- Protein: {nutritionData.Macronutrients.Protein.Amount:F1}g");
+                prompt.AppendLine($"- Carbs: {nutritionData.Macronutrients.Carbohydrates.Amount:F1}g");
+                prompt.AppendLine($"- Fat: {nutritionData.Macronutrients.Fat.Amount:F1}g");
+                prompt.AppendLine();
+                prompt.AppendLine("Generate a brief, conversational response (1-2 sentences) acknowledging the logged food. You can optionally offer a simple, positive insight based on the provided nutrition data. Keep it encouraging and natural.");
+                prompt.AppendLine("Examples: \"Got it, logged {Food Name}. Looks like a good source of protein!\", \"Okay, {Food Name} has been added to your log.\", \"Logged {Food Name} for you. Nice choice!\"");
+
+                var requestBody = new
+                {
+                    model = _openAiSettings.Model, // Use configured model
+                    messages = new[]
+                    {
+                        new { role = "system", content = "You are a friendly and encouraging nutrition coach." },
+                        new { role = "user", content = prompt.ToString() }
+                    },
+                    temperature = 0.7, // Allow for a bit more creativity in response
+                    max_tokens = 60 // Limit response length
+                };
+
+                var response = await _openAiClient.PostAsync("", requestBody);
+                response.EnsureSuccessStatusCode();
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var openAiResponse = JsonSerializer.Deserialize<OpenAiResponse>(responseContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (openAiResponse?.Choices != null && openAiResponse.Choices.Count > 0)
+                {
+                    var coachResponse = openAiResponse.Choices[0].Message.Content.Trim();
+                    _logger.LogInformation("Generated AI coach response: {CoachResponse}", coachResponse);
+                    return coachResponse;
+                }
+                else
+                {
+                    throw new Exception("Invalid response from OpenAI when generating coach response");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error generating AI coach response for: {FoodDescription}", foodDescription);
+                return "Logged!"; // Default response on error
             }
         }
     }
@@ -229,3 +293,4 @@ namespace NutritionAmbition.Backend.API.Services
         public int SelectedOption { get; set; }
     }
 }
+
