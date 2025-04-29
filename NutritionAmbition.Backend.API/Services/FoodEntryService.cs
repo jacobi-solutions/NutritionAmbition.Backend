@@ -20,12 +20,12 @@ namespace NutritionAmbition.Backend.API.Services
     public class FoodEntryService : IFoodEntryService
     {
         private readonly FoodEntryRepository _foodEntryRepository;
-        private readonly ILogger<FoodEntryService> _logger; // Added logger
+        private readonly ILogger<FoodEntryService> _logger;
 
-        public FoodEntryService(FoodEntryRepository foodEntryRepository, ILogger<FoodEntryService> logger) // Added logger
+        public FoodEntryService(FoodEntryRepository foodEntryRepository, ILogger<FoodEntryService> logger)
         {
             _foodEntryRepository = foodEntryRepository;
-            _logger = logger; // Added logger
+            _logger = logger;
         }
 
         public async Task<CreateFoodEntryResponse> AddFoodEntryAsync(string accountId, CreateFoodEntryRequest request)
@@ -37,9 +37,10 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     AccountId = accountId,
                     Description = request.Description,
-                    Meal = request.Meal, // Use MealType from request
-                    LoggedDateUtc = request.LoggedDateUtc, // Use LoggedDateUtc from request
-                    ParsedItems = request.ParsedItems ?? new List<FoodItem>()
+                    Meal = request.Meal,
+                    LoggedDateUtc = request.LoggedDateUtc,
+                    // 🟢 Use GroupedItems from request
+                    GroupedItems = request.GroupedItems ?? new List<FoodGroup>() 
                 };
 
                 await _foodEntryRepository.AddAsync(foodEntry);
@@ -60,18 +61,19 @@ namespace NutritionAmbition.Backend.API.Services
             var response = new GetFoodEntriesResponse();
             try
             {
-                // Pass filters to repository (implementation needed in repository)
                 var entries = await _foodEntryRepository.GetByAccountIdAsync(accountId, request.LoggedDateUtc, request.Meal);
                 response.FoodEntries = entries;
                 response.IsSuccess = true;
 
-                // Calculate summaries if needed (can be done here or in repository)
+                // 🟢 Calculate summaries based on GroupedItems
                 if (entries.Any())
                 {
-                    response.TotalCalories = entries.SelectMany(e => e.ParsedItems).Sum(i => i.Calories);
-                    response.TotalProtein = entries.SelectMany(e => e.ParsedItems).Sum(i => i.Protein);
-                    response.TotalCarbs = entries.SelectMany(e => e.ParsedItems).Sum(i => i.Carbohydrates);
-                    response.TotalFat = entries.SelectMany(e => e.ParsedItems).Sum(i => i.Fat);
+                    // Flatten the items from all groups in all entries
+                    var allItems = entries.SelectMany(e => e.GroupedItems).SelectMany(g => g.Items);
+                    response.TotalCalories = allItems.Sum(i => i.Calories);
+                    response.TotalProtein = allItems.Sum(i => i.Protein);
+                    response.TotalCarbs = allItems.Sum(i => i.Carbohydrates);
+                    response.TotalFat = allItems.Sum(i => i.Fat);
                 }
             }
             catch (Exception ex)
@@ -88,7 +90,7 @@ namespace NutritionAmbition.Backend.API.Services
             try
             {
                 var entry = await _foodEntryRepository.GetByIdAsync(request.FoodEntryId);
-                if (entry == null || entry.AccountId != accountId) // Verify ownership
+                if (entry == null || entry.AccountId != accountId)
                 {
                     response.AddError("Food entry not found or access denied.");
                     return response;
@@ -98,7 +100,11 @@ namespace NutritionAmbition.Backend.API.Services
                 entry.Description = request.Description ?? entry.Description;
                 entry.Meal = request.Meal ?? entry.Meal;
                 entry.LoggedDateUtc = request.LoggedDateUtc ?? entry.LoggedDateUtc;
-                entry.ParsedItems = request.ParsedItems ?? entry.ParsedItems;
+                // 🟢 Update GroupedItems if provided (assuming UpdateFoodEntryRequest is updated)
+                // entry.GroupedItems = request.GroupedItems ?? entry.GroupedItems; 
+                // Note: Need to update UpdateFoodEntryRequest and UpdateFoodEntryResponse if GroupedItems should be updatable.
+                // For now, we assume only Description, Meal, LoggedDateUtc are updatable via this method.
+                // If ParsedItems was previously updatable, we need to decide how to handle GroupedItems updates.
 
                 await _foodEntryRepository.UpdateAsync(entry);
                 response.UpdatedEntry = entry;
@@ -115,6 +121,7 @@ namespace NutritionAmbition.Backend.API.Services
 
         public async Task<DeleteFoodEntryResponse> DeleteFoodEntryAsync(string accountId, DeleteFoodEntryRequest request)
         {
+            // ... existing implementation (no change needed for GroupedItems) ...
             var response = new DeleteFoodEntryResponse();
             try
             {

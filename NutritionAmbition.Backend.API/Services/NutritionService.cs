@@ -4,15 +4,13 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
-using NutritionAmbition.Backend.API.Models; // Added for FoodEntry, FoodItem, MealType
+using NutritionAmbition.Backend.API.Models;
 
 namespace NutritionAmbition.Backend.API.Services
 {
     public interface INutritionService
     {
-        // Modified to accept accountId
         Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription);
-        // Modified to accept accountId
         Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription);
     }
 
@@ -20,20 +18,20 @@ namespace NutritionAmbition.Backend.API.Services
     {
         private readonly INutritionixService _nutritionixService;
         private readonly IOpenAiService _openAiService;
-        private readonly IFoodEntryService _foodEntryService; // 🟢 Inject IFoodEntryService
+        private readonly IFoodEntryService _foodEntryService;
         private readonly ILogger<NutritionService> _logger;
 
         public NutritionService(INutritionixService nutritionixService, IOpenAiService openAiService, IFoodEntryService foodEntryService, ILogger<NutritionService> logger)
         {
             _nutritionixService = nutritionixService;
             _openAiService = openAiService;
-            _foodEntryService = foodEntryService; // 🟢 Inject IFoodEntryService
+            _foodEntryService = foodEntryService;
             _logger = logger;
         }
 
-        // Simplified method - Modified to accept accountId (though not used here currently)
         public async Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription)
         {
+            // ... existing implementation ...
             var response = new NutritionApiResponse();
             try
             {
@@ -60,14 +58,13 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        // Main method - Modified to accept accountId and save FoodEntry
         public async Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription)
         {
             var response = new NutritionApiResponse();
             try
             {
                 _logger.LogInformation("Processing food text and getting nutrition data via Nutritionix for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
-                
+
                 // 1. Get nutrition data from Nutritionix
                 var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(foodDescription);
 
@@ -75,7 +72,6 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     _logger.LogWarning("Nutritionix returned no data for: {FoodDescription}", foodDescription);
                     response.AddError("Could not find nutrition data for the specified food description.");
-                    // Still generate a coach response even if nutrition data fails
                     response.AiCoachResponse = await GenerateFallbackCoachResponseAsync(foodDescription);
                     return response;
                 }
@@ -84,27 +80,30 @@ namespace NutritionAmbition.Backend.API.Services
                 response.Foods = MapNutritionixResponseToFoodNutrition(nutritionixResponse);
                 response.IsSuccess = true;
 
-                // 3. 🟢 Save the FoodEntry to the database
+                // 3. 🟢 Save the FoodEntry to the database (with grouping)
                 if (response.IsSuccess && response.Foods.Any())
                 {
                     try
                     {
-                        // Map FoodNutrition to FoodItem for saving
+                        // Map FoodNutrition to FoodItem for grouping and saving
                         var parsedItems = MapFoodNutritionToFoodItem(response.Foods);
+
+                        // 🟢 Call AI to group the items
+                        var groupedItems = await _openAiService.GroupFoodItemsAsync(foodDescription, parsedItems);
 
                         var createFoodEntryRequest = new CreateFoodEntryRequest
                         {
                             Description = foodDescription,
                             Meal = MealType.Unknown, // Default for now
                             LoggedDateUtc = DateTime.UtcNow,
-                            ParsedItems = parsedItems
+                            // 🟢 Use GroupedItems instead of ParsedItems
+                            GroupedItems = groupedItems 
                         };
-                        // Call the service to add the entry
+                        
                         var saveResponse = await _foodEntryService.AddFoodEntryAsync(accountId, createFoodEntryRequest);
                         if (!saveResponse.IsSuccess)
                         {
                             _logger.LogWarning("Failed to save food entry for Account {AccountId}: {Errors}", accountId, string.Join(", ", saveResponse.Errors));
-                            // Don't block the response to the user if saving fails, just log it
                         }
                         else
                         {
@@ -113,25 +112,25 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                     catch (Exception saveEx)
                     {
-                        _logger.LogError(saveEx, "Error saving food entry for Account {AccountId} and description {FoodDescription}", accountId, foodDescription);
-                        // Don't block the response to the user if saving fails
+                        _logger.LogError(saveEx, "Error grouping or saving food entry for Account {AccountId} and description {FoodDescription}", accountId, foodDescription);
                     }
                 }
 
-                // 4. 🟢 Generate AI coach response after getting nutrition data
+                // 4. Generate AI coach response
                 if (response.IsSuccess && response.Foods.Any())
                 {
                     try
                     {
+                        // Use the first food item for the coach response context (or potentially summarize all)
                         response.AiCoachResponse = await _openAiService.GenerateCoachResponseAsync(foodDescription, response.Foods[0]);
                     }
                     catch (Exception coachEx)
                     {
                         _logger.LogWarning(coachEx, "Failed to generate AI coach response for: {FoodDescription}", foodDescription);
-                        response.AiCoachResponse = "Logged!"; // Default response on error
+                        response.AiCoachResponse = "Logged!";
                     }
                 }
-                else // Handle case where nutrition data retrieval failed but we still want a response
+                else
                 {
                     response.AiCoachResponse = await GenerateFallbackCoachResponseAsync(foodDescription);
                 }
@@ -142,12 +141,12 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogError(ex, "Error processing food text and getting nutrition data for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
                 response.AddError($"Error processing food text: {ex.Message}");
-                response.AiCoachResponse = "Sorry, an error occurred while processing your request."; // Error response
+                response.AiCoachResponse = "Sorry, an error occurred while processing your request.";
                 return response;
             }
         }
 
-        // Helper method to map Nutritionix response to our internal FoodNutrition structure
+        // ... MapNutritionixResponseToFoodNutrition (unchanged) ...
         private List<FoodNutrition> MapNutritionixResponseToFoodNutrition(NutritionixResponse nutritionixResponse)
         {
             var mappedFoods = new List<FoodNutrition>();
@@ -226,7 +225,7 @@ namespace NutritionAmbition.Backend.API.Services
             return mappedFoods;
         }
 
-        // 🟢 Helper method to map FoodNutrition (API contract) to FoodItem (DB model)
+        // ... MapFoodNutritionToFoodItem (unchanged) ...
         private List<FoodItem> MapFoodNutritionToFoodItem(List<FoodNutrition> foodNutritions)
         {
             var foodItems = new List<FoodItem>();
@@ -235,14 +234,12 @@ namespace NutritionAmbition.Backend.API.Services
                 var fi = new FoodItem
                 {
                     Name = fn.Name,
-                    // Attempt to parse quantity, default to 1 if invalid
                     Quantity = double.TryParse(fn.Quantity, out double qty) ? qty : 1.0,
                     Unit = fn.Unit ?? string.Empty,
                     Calories = fn.Calories,
                     Protein = fn.Macronutrients.Protein.Amount,
                     Carbohydrates = fn.Macronutrients.Carbohydrates.Amount,
                     Fat = fn.Macronutrients.Fat.Amount,
-                    // Map micronutrients (simplified: store name and amount)
                     Micronutrients = fn.Micronutrients.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Amount)
                 };
                 foodItems.Add(fi);
@@ -250,18 +247,17 @@ namespace NutritionAmbition.Backend.API.Services
             return foodItems;
         }
 
-        // 🟢 Helper method to generate a fallback coach response when nutrition data fails
+        // ... GenerateFallbackCoachResponseAsync (unchanged) ...
         private async Task<string> GenerateFallbackCoachResponseAsync(string foodDescription)
         {
             try
             {
-                // Use a simpler prompt for OpenAI just acknowledging the input
-                return await _openAiService.GenerateCoachResponseAsync(foodDescription, null); // Pass null for nutrition data
+                return await _openAiService.GenerateCoachResponseAsync(foodDescription, null);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to generate fallback AI coach response for: {FoodDescription}", foodDescription);
-                return "Sorry, I couldn't find nutrition data, but I've noted the description."; // Default fallback
+                return "Sorry, I couldn\'t find nutrition data, but I\'ve noted the description.";
             }
         }
     }

@@ -17,8 +17,9 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
         Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults);
-        // 🟢 Add method signature for coach response
         Task<string> GenerateCoachResponseAsync(string foodDescription, FoodNutrition nutritionData);
+        // 🟢 Add method signature for food grouping
+        Task<List<FoodGroup>> GroupFoodItemsAsync(string originalDescription, List<FoodItem> foodItems);
     }
 
     public class OpenAiService : IOpenAiService
@@ -265,6 +266,161 @@ namespace NutritionAmbition.Backend.API.Services
                 return "Logged!"; // Default response on error
             }
         }
+
+        // 🟢 Implement method to group food items using AI
+        public async Task<List<FoodGroup>> GroupFoodItemsAsync(string originalDescription, List<FoodItem> foodItems)
+        {
+            if (foodItems == null || !foodItems.Any())
+            {
+                return new List<FoodGroup>(); // Return empty list if no items
+            }
+
+            // If only one item, create a single group for it
+            if (foodItems.Count == 1)
+            {
+                return new List<FoodGroup>
+                {
+                    new FoodGroup { GroupName = foodItems[0].Name, Items = foodItems }
+                };
+            }
+
+            try
+            {
+                _logger.LogInformation("Grouping food items with OpenAI for: {OriginalDescription}", originalDescription);
+
+                // Format the food items for the prompt
+                var formattedItems = new StringBuilder();
+                for (int i = 0; i < foodItems.Count; i++)
+                {
+                    var item = foodItems[i];
+                    formattedItems.AppendLine($"Item {i + 1}: {item.Quantity} {item.Unit} {item.Name}");
+                }
+
+                // Create the prompt for OpenAI
+                var messages = new List<object>
+                {
+                    new
+                    {
+                        role = "system",
+                        content = @"You are a nutrition assistant. Given a user's original food description and a list of parsed food items (from Nutritionix), group these items into logical meal components or individual significant items. 
+                        Assign a concise, descriptive name to each group (e.g., 'Coffee', 'Protein Shake', 'Chicken', 'Banana').
+                        Ensure every parsed item is assigned to exactly one group.
+                        Respond with a JSON object containing a list of groups, where each group has a 'groupName' and a list of 'itemIndices' (1-based index from the provided list).
+                        Example Input:
+                        Original Description: '12 oz of coffee with a tablespoon of Ryze mushroom mix and a half cup of silk organic soy milk. Two small bananas and .46 lb of grilled chicken'
+                        Parsed Items:
+                        Item 1: 12 oz coffee
+                        Item 2: 1 tbsp mushroom powder
+                        Item 3: 0.5 cup soy milk
+                        Item 4: 2 small banana
+                        Item 5: 0.46 lb grilled chicken breast
+                        Example JSON Output:
+                        {
+                          ""groups"": [
+                            { ""groupName"": ""Coffee with Soy Milk & Mix"", ""itemIndices"": [1, 2, 3] },
+                            { ""groupName"": ""Bananas"", ""itemIndices"": [4] },
+                            { ""groupName"": ""Grilled Chicken"", ""itemIndices"": [5] }
+                          ]
+                        }"
+                    },
+                    new
+                    {
+                        role = "user",
+                        content = $"Original Description: {originalDescription}\n\nParsed Items:\n{formattedItems}"
+                    }
+                };
+
+                var requestBody = new
+                {
+                    model = _openAiSettings.Model, // Use configured model
+                    messages,
+                    temperature = 0.3, // Keep it relatively deterministic
+                    response_format = new { type = "json_object" }
+                };
+
+                var response = await _openAiClient.PostAsync("", requestBody);
+                response.EnsureSuccessStatusCode();
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var openAiResponse = JsonSerializer.Deserialize<OpenAiResponse>(responseContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (openAiResponse?.Choices == null || openAiResponse.Choices.Count == 0)
+                {
+                    throw new Exception("Invalid response from OpenAI during grouping");
+                }
+
+                var aiContent = openAiResponse.Choices[0].Message.Content;
+                _logger.LogDebug("OpenAI grouping response content: {AIContent}", aiContent);
+
+                var groupingResponse = JsonSerializer.Deserialize<FoodGroupingResponse>(aiContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (groupingResponse?.Groups == null || !groupingResponse.Groups.Any())
+                {
+                    _logger.LogWarning("OpenAI did not return valid groups, returning items ungrouped.");
+                    // Fallback: return each item as its own group
+                    return foodItems.Select(item => new FoodGroup { GroupName = item.Name, Items = new List<FoodItem> { item } }).ToList();
+                }
+
+                // Map the AI response (indices) back to the actual FoodItem objects
+                var resultGroups = new List<FoodGroup>();
+                var assignedIndices = new HashSet<int>();
+
+                foreach (var aiGroup in groupingResponse.Groups)
+                {
+                    var groupItems = new List<FoodItem>();
+                    if (aiGroup.ItemIndices != null)
+                    {
+                        foreach (var index in aiGroup.ItemIndices)
+                        {
+                            int zeroBasedIndex = index - 1;
+                            if (zeroBasedIndex >= 0 && zeroBasedIndex < foodItems.Count)
+                            {
+                                groupItems.Add(foodItems[zeroBasedIndex]);
+                                assignedIndices.Add(zeroBasedIndex);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("OpenAI returned invalid item index {Index} during grouping.", index);
+                            }
+                        }
+                    }
+
+                    if (groupItems.Any()) // Only add group if it has items
+                    {
+                        resultGroups.Add(new FoodGroup
+                        {
+                            GroupName = aiGroup.GroupName ?? "Unnamed Group",
+                            Items = groupItems
+                        });
+                    }
+                }
+                
+                // Handle any items missed by the AI (shouldn't happen with good prompt, but good fallback)
+                for(int i = 0; i < foodItems.Count; i++)
+                {
+                    if (!assignedIndices.Contains(i))
+                    {
+                        _logger.LogWarning("Item at index {Index} ({ItemName}) was not assigned to any group by OpenAI. Adding as its own group.", i, foodItems[i].Name);
+                        resultGroups.Add(new FoodGroup { GroupName = foodItems[i].Name, Items = new List<FoodItem> { foodItems[i] } });
+                    }
+                }
+
+                _logger.LogInformation("Successfully grouped {ItemCount} items into {GroupCount} groups.", foodItems.Count, resultGroups.Count);
+                return resultGroups;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error grouping food items with OpenAI for: {OriginalDescription}", originalDescription);
+                // Fallback: return each item as its own group in case of error
+                return foodItems.Select(item => new FoodGroup { GroupName = item.Name, Items = new List<FoodItem> { item } }).ToList();
+            }
+        }
     }
 
     // OpenAI API response models
@@ -291,6 +447,18 @@ namespace NutritionAmbition.Backend.API.Services
     public class FoodSelectionResponse
     {
         public int SelectedOption { get; set; }
+    }
+
+    // 🟢 New response model for AI grouping
+    public class FoodGroupingResponse
+    {
+        public List<AiGroupInfo> Groups { get; set; } = new List<AiGroupInfo>();
+    }
+
+    public class AiGroupInfo
+    {
+        public string GroupName { get; set; } = string.Empty;
+        public List<int> ItemIndices { get; set; } = new List<int>(); // 1-based indices
     }
 }
 
