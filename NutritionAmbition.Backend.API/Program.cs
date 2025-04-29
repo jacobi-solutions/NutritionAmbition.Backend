@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using MongoDB.Bson.Serialization.Conventions;
 using MongoDB.Driver;
+using NutritionAmbition.Backend.API;
 
 var builder = WebApplication.CreateBuilder(args);
 

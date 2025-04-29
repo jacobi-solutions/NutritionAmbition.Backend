@@ -19,9 +19,9 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly HttpClient _httpClient;
         private readonly string _nutritionApiKey;
         private readonly string _nutritionApiEndpoint;
-        private readonly NutritionApiSettings _nutritionApiSettings;
+        private readonly NutritionixSettings _nutritionApiSettings;
 
-        public NutritionApiService(ILogger<NutritionApiService> logger, HttpClient httpClient, NutritionApiSettings nutritionApiSettings)
+        public NutritionApiService(ILogger<NutritionApiService> logger, HttpClient httpClient, NutritionixSettings nutritionApiSettings)
         {
             _logger = logger;
             _httpClient = httpClient;
