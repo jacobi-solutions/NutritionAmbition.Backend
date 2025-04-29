@@ -26,7 +26,12 @@ if (builder.Environment.IsDevelopment())
 }
 
 // Add services to the container
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options => 
+    {
+        // Use the custom converter for potentially problematic string deserialization
+        options.JsonSerializerOptions.Converters.Add(new SafeStringConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -37,11 +42,13 @@ builder.Services.AddSingleton(mongoDbSettings);
 var firebaseSettings = builder.Configuration.GetSection(AppConstants.FirebaseSettings).Get<FirebaseSettings>();
 builder.Services.AddSingleton(firebaseSettings);
 
-var openAiSettings = builder.Configuration.GetSection(AppConstants.OpenAiSettings).Get<OpenAiSettings>();
-builder.Services.AddSingleton(openAiSettings);
+// Configure OpenAiSettings
+builder.Services.Configure<OpenAiSettings>(builder.Configuration.GetSection("OpenAiSettings"));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<OpenAiSettings>>().Value);
 
-var nutritionApiSettings = builder.Configuration.GetSection(AppConstants.NutritionApiSettings).Get<NutritionApiSettings>();
-builder.Services.AddSingleton(nutritionApiSettings);
+// Configure NutritionixSettings
+builder.Services.Configure<NutritionixSettings>(builder.Configuration.GetSection("NutritionixSettings"));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<NutritionixSettings>>().Value);
 
 // 🟢 Database
 var pack = new ConventionPack
@@ -59,15 +66,21 @@ builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongo
 
 // 🟢 Services
 builder.Services.AddSingleton<AccountsService>();
-builder.Services.AddSingleton<AiService>();
+builder.Services.AddSingleton<AiService>(); // Assuming this is the AI Conversation Handler
 builder.Services.AddSingleton<FoodEntryService>();
-// // builder.Services.AddSingleton<FoodParsingService>();
-builder.Services.AddSingleton<NutritionApiService>();
-// builder.Services.AddSingleton<NutritionService>();
-builder.Services.AddSingleton<OpenAiService>();
-// builder.Services.AddSingleton<UsdaFoodDataService>();
-NutritionAmbition.Backend.API.AiServiceExtensions.AddAiServices(builder.Services);
-NutritionAmbition.Backend.API.NutritionServiceExtensions.AddNutritionServices(builder.Services);
+
+// Register OpenAI Service with HttpClient
+builder.Services.AddHttpClient<IOpenAiService, OpenAiService>();
+
+// Register Nutritionix Service with HttpClient
+builder.Services.AddHttpClient<INutritionixService, NutritionixService>();
+
+// Register the main Nutrition Service (now using Nutritionix)
+builder.Services.AddSingleton<INutritionService, NutritionService>();
+
+// Commenting out potentially conflicting extension methods until verified
+// NutritionAmbition.Backend.API.AiServiceExtensions.AddAiServices(builder.Services);
+// NutritionAmbition.Backend.API.NutritionServiceExtensions.AddNutritionServices(builder.Services);
 
 // Repos
 builder.Services.AddSingleton<AccountsRepository>();
@@ -148,3 +161,4 @@ finally
 {
     Log.CloseAndFlush();
 }
+

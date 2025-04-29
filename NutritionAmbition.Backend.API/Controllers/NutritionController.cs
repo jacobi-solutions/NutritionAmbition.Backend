@@ -13,36 +13,20 @@ namespace NutritionAmbition.Backend.API.Controllers
     public class NutritionController : ControllerBase
     {
         private readonly INutritionService _nutritionService;
-        private readonly IFoodParsingService _foodParsingService;
+        private readonly IOpenAiService _openAiService;
         private readonly AccountsService _accountsService;
+        private readonly ILogger<NutritionController> _logger;
 
         public NutritionController(
             INutritionService nutritionService,
-            IFoodParsingService foodParsingService,
-            AccountsService accountsService)
+            IOpenAiService openAiService,
+            AccountsService accountsService,
+            ILogger<NutritionController> logger)
         {
             _nutritionService = nutritionService;
-            _foodParsingService = foodParsingService;
+            _openAiService = openAiService;
             _accountsService = accountsService;
-        }
-
-        [HttpPost("GetNutritionData")]
-        public async Task<ActionResult<NutritionApiResponse>> GetNutritionData([FromBody] ParseFoodTextResponse parsedFood)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
-            if (account == null)
-            {
-                return Unauthorized();
-            }
-
-            var response = await _nutritionService.GetNutritionDataForParsedFoodAsync(parsedFood);
-            return Ok(response);
+            _logger = logger;
         }
 
         [HttpPost("GetNutritionDataForFoodItem")]
@@ -60,10 +44,10 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized();
             }
 
-            var response = await _nutritionService.GetNutritionDataForFoodItemAsync(
-                request.FoodDescription, 
-                request.Quantity, 
-                request.Unit);
+            _logger.LogInformation("Getting nutrition data for food item: {FoodDescription}", request.FoodDescription);
+            
+            // Use the updated method that directly queries Nutritionix
+            var response = await _nutritionService.GetNutritionDataForFoodItemAsync(request.FoodDescription);
                 
             return Ok(response);
         }
@@ -83,7 +67,9 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized();
             }
 
-            // Use the new streamlined method that handles everything automatically
+            _logger.LogInformation("Processing food text and getting nutrition data: {FoodDescription}", request.FoodDescription);
+
+            // Use the streamlined method that handles everything automatically
             var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(request.FoodDescription);
             if (!nutritionData.IsSuccess)
             {
@@ -97,7 +83,5 @@ namespace NutritionAmbition.Backend.API.Controllers
     public class FoodItemRequest
     {
         public string FoodDescription { get; set; } = string.Empty;
-        public string Quantity { get; set; } = "1";
-        public string Unit { get; set; } = string.Empty;
     }
 }
