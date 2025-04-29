@@ -4,33 +4,39 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
+using NutritionAmbition.Backend.API.Models; // Added for FoodEntry, FoodItem, MealType
 
 namespace NutritionAmbition.Backend.API.Services
 {
     public interface INutritionService
     {
-        Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string foodDescription);
-        Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string foodDescription);
+        // Modified to accept accountId
+        Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription);
+        // Modified to accept accountId
+        Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription);
     }
 
     public class NutritionService : INutritionService
     {
         private readonly INutritionixService _nutritionixService;
-        private readonly IOpenAiService _openAiService; // Now used for coach response
+        private readonly IOpenAiService _openAiService;
+        private readonly IFoodEntryService _foodEntryService; // 🟢 Inject IFoodEntryService
         private readonly ILogger<NutritionService> _logger;
 
         public NutritionService(
             INutritionixService nutritionixService, 
             IOpenAiService openAiService, 
+            IFoodEntryService foodEntryService, // 🟢 Inject IFoodEntryService
             ILogger<NutritionService> logger)
         {
             _nutritionixService = nutritionixService;
             _openAiService = openAiService;
+            _foodEntryService = foodEntryService; // 🟢 Inject IFoodEntryService
             _logger = logger;
         }
 
-        // Simplified method to directly query Nutritionix
-        public async Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string foodDescription)
+        // Simplified method - Modified to accept accountId (though not used here currently)
+        public async Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription)
         {
             var response = new NutritionApiResponse();
             try
@@ -46,7 +52,7 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                response.Foods = MapNutritionixResponse(nutritionixResponse);
+                response.Foods = MapNutritionixResponseToFoodNutrition(nutritionixResponse);
                 response.IsSuccess = true;
                 return response;
             }
@@ -58,34 +64,69 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        // Main method using Nutritionix natural language endpoint
-        public async Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string foodDescription)
+        // Main method - Modified to accept accountId and save FoodEntry
+        public async Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription)
         {
             var response = new NutritionApiResponse();
             try
             {
-                _logger.LogInformation("Processing food text and getting nutrition data via Nutritionix: {FoodDescription}", foodDescription);
+                _logger.LogInformation("Processing food text and getting nutrition data via Nutritionix for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
                 
-                // Directly query Nutritionix using its natural language processing
+                // 1. Get nutrition data from Nutritionix
                 var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(foodDescription);
 
                 if (nutritionixResponse == null || !nutritionixResponse.Foods.Any())
                 {
                     _logger.LogWarning("Nutritionix returned no data for: {FoodDescription}", foodDescription);
                     response.AddError("Could not find nutrition data for the specified food description.");
+                    // Still generate a coach response even if nutrition data fails
+                    response.AiCoachResponse = await GenerateFallbackCoachResponseAsync(foodDescription);
                     return response;
                 }
 
-                // Map the response from Nutritionix format to our internal format
-                response.Foods = MapNutritionixResponse(nutritionixResponse);
+                // 2. Map Nutritionix response to our internal FoodNutrition structure
+                response.Foods = MapNutritionixResponseToFoodNutrition(nutritionixResponse);
                 response.IsSuccess = true;
 
-                // 🟢 Generate AI coach response after getting nutrition data
+                // 3. 🟢 Save the FoodEntry to the database
                 if (response.IsSuccess && response.Foods.Any())
                 {
                     try
                     {
-                        // Generate AI coach response using the first food item's data
+                        // Map FoodNutrition to FoodItem for saving
+                        var parsedItems = MapFoodNutritionToFoodItem(response.Foods);
+
+                        var createFoodEntryRequest = new CreateFoodEntryRequest
+                        {
+                            Description = foodDescription,
+                            Meal = MealType.Unknown, // Default for now
+                            LoggedDateUtc = DateTime.UtcNow,
+                            ParsedItems = parsedItems
+                        };
+                        // Call the service to add the entry
+                        var saveResponse = await _foodEntryService.AddFoodEntryAsync(accountId, createFoodEntryRequest);
+                        if (!saveResponse.Success)
+                        {
+                            _logger.LogWarning("Failed to save food entry for Account {AccountId}: {Errors}", accountId, string.Join(", ", saveResponse.Errors));
+                            // Don't block the response to the user if saving fails, just log it
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Successfully saved food entry {FoodEntryId} for Account {AccountId}", saveResponse.FoodEntry?.Id, accountId);
+                        }
+                    }
+                    catch (Exception saveEx)
+                    {
+                        _logger.LogError(saveEx, "Error saving food entry for Account {AccountId} and description {FoodDescription}", accountId, foodDescription);
+                        // Don't block the response to the user if saving fails
+                    }
+                }
+
+                // 4. 🟢 Generate AI coach response after getting nutrition data
+                if (response.IsSuccess && response.Foods.Any())
+                {
+                    try
+                    {
                         response.AiCoachResponse = await _openAiService.GenerateCoachResponseAsync(foodDescription, response.Foods[0]);
                     }
                     catch (Exception coachEx)
@@ -94,17 +135,16 @@ namespace NutritionAmbition.Backend.API.Services
                         response.AiCoachResponse = "Logged!"; // Default response on error
                     }
                 }
-                else
+                else // Handle case where nutrition data retrieval failed but we still want a response
                 {
-                    // Set a default response if nutrition data retrieval failed but we still want a chat message
-                    response.AiCoachResponse = "Sorry, I couldn't find nutrition data for that, but I've noted the description.";
+                    response.AiCoachResponse = await GenerateFallbackCoachResponseAsync(foodDescription);
                 }
 
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing food text and getting nutrition data: {FoodDescription}", foodDescription);
+                _logger.LogError(ex, "Error processing food text and getting nutrition data for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
                 response.AddError($"Error processing food text: {ex.Message}");
                 response.AiCoachResponse = "Sorry, an error occurred while processing your request."; // Error response
                 return response;
@@ -112,7 +152,7 @@ namespace NutritionAmbition.Backend.API.Services
         }
 
         // Helper method to map Nutritionix response to our internal FoodNutrition structure
-        private List<FoodNutrition> MapNutritionixResponse(NutritionixResponse nutritionixResponse)
+        private List<FoodNutrition> MapNutritionixResponseToFoodNutrition(NutritionixResponse nutritionixResponse)
         {
             var mappedFoods = new List<FoodNutrition>();
 
@@ -121,38 +161,112 @@ namespace NutritionAmbition.Backend.API.Services
                 var foodNutrition = new FoodNutrition
                 {
                     Name = food.FoodName,
-                    Quantity = food.ServingQty.ToString(), // Use serving quantity from Nutritionix
-                    Unit = food.ServingUnit, // Use serving unit from Nutritionix
+                    Quantity = food.ServingQty.ToString(),
+                    Unit = food.ServingUnit,
                     Calories = food.Calories ?? 0,
-                    Macronutrients = new Macronutrients // Use the existing Macronutrients class
+                    Macronutrients = new Macronutrients
                     {
-                        // Use the existing NutrientInfo class instead of the non-existent Macronutrient class
                         Protein = new NutrientInfo { Amount = food.Protein ?? 0, Unit = "g" },
                         Carbohydrates = new NutrientInfo { Amount = food.TotalCarbohydrate ?? 0, Unit = "g" },
                         Fat = new NutrientInfo { Amount = food.TotalFat ?? 0, Unit = "g" },
                         Fiber = new NutrientInfo { Amount = food.DietaryFiber ?? 0, Unit = "g" },
                         Sugar = new NutrientInfo { Amount = food.Sugars ?? 0, Unit = "g" },
                         SaturatedFat = new NutrientInfo { Amount = food.SaturatedFat ?? 0, Unit = "g" }
-                        // UnsaturatedFat and TransFat are not directly available in the base Nutritionix response, 
-                        // they might be in FullNutrients if needed.
                     },
-                    Micronutrients = new Dictionary<string, Micronutrient>() // Populate if needed from FullNutrients
+                    Micronutrients = new Dictionary<string, Micronutrient>()
                 };
 
-                // Optionally map micronutrients from food.FullNutrients if required
-                // Example: Map Potassium (attr_id 306)
-                var potassium = food.FullNutrients.FirstOrDefault(n => n.AttrId == 306);
-                if (potassium != null)
+                // Map micronutrients from FullNutrients
+                if (food.FullNutrients != null)
                 {
-                    // Use the existing Micronutrient class
-                    foodNutrition.Micronutrients["Potassium"] = new Micronutrient { Amount = potassium.Value, Unit = "mg" }; // Assuming unit is mg
-                }
-                // Add mappings for other relevant micronutrients based on AttrId
+                    foreach (var nutrient in food.FullNutrients)
+                    {
+                        // Basic mapping based on common attr_ids (can be expanded)
+                        string? nutrientName = nutrient.AttrId switch
+                        {
+                            301 => "Calcium",
+                            303 => "Iron",
+                            304 => "Magnesium",
+                            305 => "Phosphorus",
+                            306 => "Potassium",
+                            307 => "Sodium",
+                            309 => "Zinc",
+                            312 => "Copper",
+                            315 => "Manganese",
+                            317 => "Selenium",
+                            401 => "Vitamin C",
+                            404 => "Thiamin", // B1
+                            405 => "Riboflavin", // B2
+                            406 => "Niacin", // B3
+                            410 => "Pantothenic Acid", // B5
+                            415 => "Vitamin B6",
+                            417 => "Folate", // B9
+                            418 => "Vitamin B12",
+                            320 => "Vitamin A", // RAE
+                            323 => "Vitamin E",
+                            328 => "Vitamin D", // D2 + D3
+                            430 => "Vitamin K",
+                            _ => null
+                        };
 
+                        if (nutrientName != null)
+                        {
+                            // Determine unit (most are mg, some mcg or IU)
+                            string unit = nutrient.AttrId switch
+                            {
+                                328 => "IU", // Vitamin D often in IU
+                                417 => "mcg", // Folate often in mcg (DFE)
+                                418 => "mcg", // B12 often in mcg
+                                430 => "mcg", // Vitamin K often in mcg
+                                320 => "mcg", // Vitamin A often in mcg (RAE)
+                                _ => "mg"
+                            };
+                            foodNutrition.Micronutrients[nutrientName] = new Micronutrient { Amount = nutrient.Value, Unit = unit };
+                        }
+                    }
+                }
                 mappedFoods.Add(foodNutrition);
             }
-
             return mappedFoods;
+        }
+
+        // 🟢 Helper method to map FoodNutrition (API contract) to FoodItem (DB model)
+        private List<FoodItem> MapFoodNutritionToFoodItem(List<FoodNutrition> foodNutritions)
+        {
+            var foodItems = new List<FoodItem>();
+            foreach (var fn in foodNutritions)
+            {
+                var fi = new FoodItem
+                {
+                    Name = fn.Name,
+                    // Attempt to parse quantity, default to 1 if invalid
+                    Quantity = double.TryParse(fn.Quantity, out double qty) ? qty : 1.0,
+                    Unit = fn.Unit ?? string.Empty,
+                    Calories = fn.Calories,
+                    Protein = fn.Macronutrients.Protein.Amount,
+                    Carbohydrates = fn.Macronutrients.Carbohydrates.Amount,
+                    Fat = fn.Macronutrients.Fat.Amount,
+                    // Map micronutrients (simplified: store name and amount)
+                    Micronutrients = fn.Micronutrients.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Amount)
+                };
+                foodItems.Add(fi);
+            }
+            return foodItems;
+        }
+
+        // 🟢 Helper method to generate a fallback coach response when nutrition data fails
+        private async Task<string> GenerateFallbackCoachResponseAsync(string foodDescription)
+        {
+            try
+            {
+                // Use a simpler prompt for OpenAI just acknowledging the input
+                return await _openAiService.GenerateCoachResponseAsync(foodDescription, null); // Pass null for nutrition data
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to generate fallback AI coach response for: {FoodDescription}", foodDescription);
+                return "Sorry, I couldn't find nutrition data, but I've noted the description."; // Default fallback
+            }
         }
     }
 }
