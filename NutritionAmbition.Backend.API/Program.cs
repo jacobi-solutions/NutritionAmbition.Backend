@@ -69,12 +69,17 @@ builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongo
 builder.Services.AddSingleton<AccountsService>();
 builder.Services.AddSingleton<AiService>(); // Assuming this is the AI Conversation Handler
 builder.Services.AddSingleton<FoodEntryService>();
+builder.Services.AddScoped<IFoodParsingService, FoodParsingService>();
 
 // Register OpenAI Service with HttpClient
-builder.Services.AddHttpClient<IOpenAiService, OpenAiService>();
+builder.Services.AddHttpClient<OpenAiClient>();
+builder.Services.AddSingleton<OpenAiClient>();
+builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
 
 // Register Nutritionix Service with HttpClient
-builder.Services.AddHttpClient<INutritionixService, NutritionixService>();
+builder.Services.AddHttpClient<NutritionixClient>();
+builder.Services.AddSingleton<NutritionixClient>();
+builder.Services.AddSingleton<INutritionixService, NutritionixService>();
 
 // Register the main Nutrition Service (now using Nutritionix)
 builder.Services.AddSingleton<INutritionService, NutritionService>();

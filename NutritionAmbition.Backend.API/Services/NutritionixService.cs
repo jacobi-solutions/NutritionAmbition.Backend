@@ -1,34 +1,22 @@
 using System;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
-using NutritionAmbition.Backend.API.Settings;
 
 namespace NutritionAmbition.Backend.API.Services
 {
     public class NutritionixService : INutritionixService
     {
-        private readonly HttpClient _httpClient;
-        private readonly NutritionixSettings _settings;
+        private readonly NutritionixClient _nutritionixClient;
         private readonly ILogger<NutritionixService> _logger;
 
         public NutritionixService(
-            HttpClient httpClient, 
-            IOptions<NutritionixSettings> settings,
+            NutritionixClient nutritionixClient,
             ILogger<NutritionixService> logger)
         {
-            _httpClient = httpClient;
-            _settings = settings.Value;
+            _nutritionixClient = nutritionixClient;
             _logger = logger;
-
-            // Configure HttpClient headers for Nutritionix API
-            _httpClient.DefaultRequestHeaders.Add("x-app-id", _settings.ApplicationId);
-            _httpClient.DefaultRequestHeaders.Add("x-app-key", _settings.ApiKey);
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }
 
         public async Task<NutritionixResponse?> GetNutritionDataAsync(string query)
@@ -38,10 +26,7 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogInformation("Querying Nutritionix API for: {Query}", query);
 
                 var requestBody = new { query = query };
-                var jsonBody = JsonSerializer.Serialize(requestBody);
-                var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-
-                var response = await _httpClient.PostAsync(_settings.ApiEndpoint, content);
+                var response = await _nutritionixClient.PostAsync("", requestBody);
 
                 if (!response.IsSuccessStatusCode)
                 {

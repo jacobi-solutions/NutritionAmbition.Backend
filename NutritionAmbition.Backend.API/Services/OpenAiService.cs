@@ -8,6 +8,7 @@ using NutritionAmbition.Backend.API.DataContracts;
 using System.Collections.Generic;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Settings;
+using Microsoft.Extensions.Options;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -20,15 +21,14 @@ namespace NutritionAmbition.Backend.API.Services
     public class OpenAiService : IOpenAiService
     {
         private readonly ILogger<OpenAiService> _logger;
-        private readonly HttpClient _httpClient;
+        private readonly OpenAiClient _openAiClient;
         private readonly OpenAiSettings _openAiSettings;
-        private readonly string _model = "gpt-4o";
 
-        public OpenAiService(ILogger<OpenAiService> logger, HttpClient httpClient, OpenAiSettings openAiSettings)
+        public OpenAiService(ILogger<OpenAiService> logger, OpenAiClient openAiClient, IOptions<OpenAiSettings> openAiSettings)
         {
             _logger = logger;
-            _httpClient = httpClient;
-            _openAiSettings = openAiSettings;
+            _openAiClient = openAiClient;
+            _openAiSettings = openAiSettings.Value;
         }
 
         public async Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription)
@@ -37,51 +37,19 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogInformation("Parsing food text with OpenAI: {FoodDescription}", foodDescription);
 
-                // Create the prompt for OpenAI
-                var messages = new List<object>
-                {
-                    new
-                    {
-                        role = "system",
-                        content = @"You are a nutrition assistant that helps parse food descriptions into structured data. 
-                        Extract food items with their quantities from the user's input. 
-                        For each food item, identify the name and quantity (with unit if provided).
-                        Respond with a JSON object containing an array of meal items, each with a name and quantity.
-                        Format:
-                        {
-                          ""mealItems"": [
-                            {
-                              ""name"": ""Food Name"",
-                              ""quantity"": ""Quantity with unit if available""
-                            }
-                          ]
-                        }"
-                    },
-                    new
-                    {
-                        role = "user",
-                        content = foodDescription
-                    }
-                };
-
                 var requestBody = new
                 {
-                    model = _model,
-                    messages,
+                    model = _openAiSettings.Model,
+                    messages = new[]
+                    {
+                        new { role = "system", content = "You are a nutrition assistant..." },
+                        new { role = "user", content = foodDescription }
+                    },
                     temperature = 0.2,
                     response_format = new { type = "json_object" }
                 };
 
-                var content = new StringContent(
-                    JsonSerializer.Serialize(requestBody),
-                    Encoding.UTF8,
-                    "application/json"
-                );
-
-                _httpClient.DefaultRequestHeaders.Clear();
-                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_openAiSettings.ApiKey}");
-
-                var response = await _httpClient.PostAsync(_openAiSettings.ApiEndpoint, content);
+                var response = await _openAiClient.PostAsync("", requestBody);
                 response.EnsureSuccessStatusCode();
 
                 var responseContent = await response.Content.ReadAsStringAsync();
@@ -190,22 +158,13 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var requestBody = new
                 {
-                    model = _model,
+                    model = "gpt-4",
                     messages,
                     temperature = 0.2,
                     response_format = new { type = "json_object" }
                 };
 
-                var content = new StringContent(
-                    JsonSerializer.Serialize(requestBody),
-                    Encoding.UTF8,
-                    "application/json"
-                );
-
-                _httpClient.DefaultRequestHeaders.Clear();
-                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_openAiSettings.ApiKey}");
-
-                var response = await _httpClient.PostAsync(_openAiSettings.ApiEndpoint, content);
+                var response = await _openAiClient.PostAsync("", requestBody);
                 response.EnsureSuccessStatusCode();
 
                 var responseContent = await response.Content.ReadAsStringAsync();

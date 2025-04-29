@@ -1,4 +1,4 @@
-namespace NutritionAmbition.Backend.API.DataContracts.Nutrition
+namespace NutritionAmbition.Backend.API.DataContracts
 {
     // Represents a single food item result from a search (originally USDA, structure kept for OpenAI interaction)
     public class FoodSearchResult
