@@ -9,8 +9,6 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface INutritionService
     {
-        // Removed GetNutritionDataForParsedFoodAsync as Nutritionix handles combined queries
-        // Updated GetNutritionDataForFoodItemAsync to directly use Nutritionix
         Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string foodDescription);
         Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string foodDescription);
     }
@@ -105,14 +103,17 @@ namespace NutritionAmbition.Backend.API.Services
                     Quantity = food.ServingQty.ToString(), // Use serving quantity from Nutritionix
                     Unit = food.ServingUnit, // Use serving unit from Nutritionix
                     Calories = food.Calories ?? 0,
-                    Macronutrients = new Macronutrients
+                    Macronutrients = new Macronutrients // Use the existing Macronutrients class
                     {
-                        Protein = new Macronutrient { Amount = food.Protein ?? 0, Unit = "g" },
-                        Carbohydrates = new Macronutrient { Amount = food.TotalCarbohydrate ?? 0, Unit = "g" },
-                        Fat = new Macronutrient { Amount = food.TotalFat ?? 0, Unit = "g" },
-                        Fiber = new Macronutrient { Amount = food.DietaryFiber ?? 0, Unit = "g" },
-                        Sugar = new Macronutrient { Amount = food.Sugars ?? 0, Unit = "g" },
-                        SaturatedFat = new Macronutrient { Amount = food.SaturatedFat ?? 0, Unit = "g" }
+                        // Use the existing NutrientInfo class instead of the non-existent Macronutrient class
+                        Protein = new NutrientInfo { Amount = food.Protein ?? 0, Unit = "g" },
+                        Carbohydrates = new NutrientInfo { Amount = food.TotalCarbohydrate ?? 0, Unit = "g" },
+                        Fat = new NutrientInfo { Amount = food.TotalFat ?? 0, Unit = "g" },
+                        Fiber = new NutrientInfo { Amount = food.DietaryFiber ?? 0, Unit = "g" },
+                        Sugar = new NutrientInfo { Amount = food.Sugars ?? 0, Unit = "g" },
+                        SaturatedFat = new NutrientInfo { Amount = food.SaturatedFat ?? 0, Unit = "g" }
+                        // UnsaturatedFat and TransFat are not directly available in the base Nutritionix response, 
+                        // they might be in FullNutrients if needed.
                     },
                     Micronutrients = new Dictionary<string, Micronutrient>() // Populate if needed from FullNutrients
                 };
@@ -122,6 +123,7 @@ namespace NutritionAmbition.Backend.API.Services
                 var potassium = food.FullNutrients.FirstOrDefault(n => n.AttrId == 306);
                 if (potassium != null)
                 {
+                    // Use the existing Micronutrient class
                     foodNutrition.Micronutrients["Potassium"] = new Micronutrient { Amount = potassium.Value, Unit = "mg" }; // Assuming unit is mg
                 }
                 // Add mappings for other relevant micronutrients based on AttrId
@@ -131,9 +133,5 @@ namespace NutritionAmbition.Backend.API.Services
 
             return mappedFoods;
         }
-
-        // Removed USDA-specific helper methods: 
-        // GetFoodNutritionAsync, GetFoodNutritionWithAiSelectionAsync, 
-        // RemoveQuantityFromDescription, MapNutrients, IsMacronutrient, CreateDefaultFoodNutrition
     }
 }
