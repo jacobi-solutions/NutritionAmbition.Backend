@@ -76,9 +76,9 @@ builder.Services.AddScoped<IFoodParsingService, FoodParsingService>();
 builder.Services.AddSingleton<DailyGoalRepository>();
 builder.Services.AddSingleton<IDailyGoalService, DailyGoalService>();
 
-// Register the CoachMessage service and repository
-builder.Services.AddSingleton<CoachMessageRepository>();
-builder.Services.AddSingleton<ICoachMessageService, CoachMessageService>();
+// Register the ChatMessage service and repository
+builder.Services.AddSingleton<ChatMessageRepository>();
+builder.Services.AddSingleton<IChatMessageService, ChatMessageService>();
 
 // Register Nutritionix Service with HttpClient
 builder.Services.AddHttpClient<NutritionixClient>();

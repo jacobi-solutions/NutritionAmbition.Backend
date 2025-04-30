@@ -3,8 +3,8 @@ using NutritionAmbition.Backend.API.Models;
 
 namespace NutritionAmbition.Backend.API.DataContracts
 {
-    public class GetCoachMessagesResponse : Response
+    public class GetChatMessagesResponse : Response
     {
-        public List<CoachMessage> Messages { get; set; } = new List<CoachMessage>();
+        public List<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
     }
 } 

@@ -10,30 +10,30 @@ namespace NutritionAmbition.Backend.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class CoachMessageController : ControllerBase
+    public class ChatMessageController : ControllerBase
     {
-        private readonly ICoachMessageService _coachMessageService;
+        private readonly IChatMessageService _chatMessageService;
         private readonly AccountsService _accountsService;
-        private readonly ILogger<CoachMessageController> _logger;
+        private readonly ILogger<ChatMessageController> _logger;
 
-        public CoachMessageController(
-            ICoachMessageService coachMessageService,
+        public ChatMessageController(
+            IChatMessageService chatMessageService,
             AccountsService accountsService,
-            ILogger<CoachMessageController> logger)
+            ILogger<ChatMessageController> logger)
         {
-            _coachMessageService = coachMessageService;
+            _chatMessageService = chatMessageService;
             _accountsService = accountsService;
             _logger = logger;
         }
 
         /// <summary>
-        /// Logs a coach message for the user
+        /// Logs a chat message for the user
         /// </summary>
-        /// <param name="request">The coach message details</param>
+        /// <param name="request">The chat message details</param>
         /// <returns>Response with the logged message</returns>
         [HttpPost("log")]
         [FlexibleAuthorize]
-        public async Task<IActionResult> LogCoachMessage([FromBody] LogCoachMessageRequest request)
+        public async Task<IActionResult> LogChatMessage([FromBody] LogChatMessageRequest request)
         {
             if (!ModelState.IsValid)
             {
@@ -46,7 +46,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized("User account not found");
             }
 
-            var response = await _coachMessageService.LogMessageAsync(account.Id, request);
+            var response = await _chatMessageService.LogMessageAsync(account.Id, request);
             
             if (!response.IsSuccess)
             {
@@ -57,13 +57,13 @@ namespace NutritionAmbition.Backend.API.Controllers
         }
         
         /// <summary>
-        /// Gets all coach messages for a specific date
+        /// Gets all chat messages for a specific date
         /// </summary>
         /// <param name="request">The request with date information</param>
-        /// <returns>Response with the list of coach messages</returns>
-        [HttpPost("GetCoachMessages")]
+        /// <returns>Response with the list of chat messages</returns>
+        [HttpPost("GetChatMessages")]
         [FlexibleAuthorize]
-        public async Task<IActionResult> GetCoachMessages([FromBody] GetCoachMessagesRequest request)
+        public async Task<IActionResult> GetChatMessages([FromBody] GetChatMessagesRequest request)
         {
             if (!ModelState.IsValid)
             {
@@ -76,7 +76,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized("User account not found");
             }
 
-            var response = await _coachMessageService.GetCoachMessagesAsync(account.Id, request);
+            var response = await _chatMessageService.GetChatMessagesAsync(account.Id, request);
             
             if (!response.IsSuccess)
             {
@@ -87,13 +87,13 @@ namespace NutritionAmbition.Backend.API.Controllers
         }
         
         /// <summary>
-        /// Clears coach messages for a specific date or all if date is null
+        /// Clears chat messages for a specific date or all if date is null
         /// </summary>
         /// <param name="request">The request with optional date information</param>
         /// <returns>Response indicating success and count of messages deleted</returns>
-        [HttpPost("ClearCoachMessages")]
+        [HttpPost("ClearChatMessages")]
         [FlexibleAuthorize]
-        public async Task<IActionResult> ClearCoachMessages([FromBody] ClearCoachMessagesRequest request)
+        public async Task<IActionResult> ClearChatMessages([FromBody] ClearChatMessagesRequest request)
         {
             if (!ModelState.IsValid)
             {
@@ -106,7 +106,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized("User account not found");
             }
 
-            var response = await _coachMessageService.ClearCoachMessagesAsync(account.Id, request);
+            var response = await _chatMessageService.ClearChatMessagesAsync(account.Id, request);
             
             if (!response.IsSuccess)
             {

@@ -2,10 +2,10 @@ using System.ComponentModel.DataAnnotations;
 
 namespace NutritionAmbition.Backend.API.DataContracts
 {
-    public class LogCoachMessageRequest : Request
+    public class LogChatMessageRequest : Request
     {
         [Required]
-        public string Message { get; set; }
+        public string Content { get; set; }
 
         [Required]
         public string Role { get; set; }

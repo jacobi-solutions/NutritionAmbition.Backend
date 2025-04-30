@@ -2,7 +2,7 @@ using System;
 
 namespace NutritionAmbition.Backend.API.DataContracts
 {
-    public class ClearCoachMessagesRequest : Request
+    public class ClearChatMessagesRequest : Request
     {
         public DateTime? LoggedDateUtc { get; set; }
     }
