@@ -55,5 +55,65 @@ namespace NutritionAmbition.Backend.API.Controllers
 
             return Ok(response);
         }
+        
+        /// <summary>
+        /// Gets all coach messages for a specific date
+        /// </summary>
+        /// <param name="request">The request with date information</param>
+        /// <returns>Response with the list of coach messages</returns>
+        [HttpPost("GetCoachMessages")]
+        [FlexibleAuthorize]
+        public async Task<IActionResult> GetCoachMessages([FromBody] GetCoachMessagesRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            if (account == null)
+            {
+                return Unauthorized("User account not found");
+            }
+
+            var response = await _coachMessageService.GetCoachMessagesAsync(account.Id, request);
+            
+            if (!response.IsSuccess)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+        
+        /// <summary>
+        /// Clears coach messages for a specific date or all if date is null
+        /// </summary>
+        /// <param name="request">The request with optional date information</param>
+        /// <returns>Response indicating success and count of messages deleted</returns>
+        [HttpPost("ClearCoachMessages")]
+        [FlexibleAuthorize]
+        public async Task<IActionResult> ClearCoachMessages([FromBody] ClearCoachMessagesRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            if (account == null)
+            {
+                return Unauthorized("User account not found");
+            }
+
+            var response = await _coachMessageService.ClearCoachMessagesAsync(account.Id, request);
+            
+            if (!response.IsSuccess)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
     }
 } 

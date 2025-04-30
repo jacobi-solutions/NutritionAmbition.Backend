@@ -9,5 +9,7 @@ namespace NutritionAmbition.Backend.API.Models
         public string Message { get; set; }
         public string Role { get; set; }
         public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;
+        public DateTime LoggedDateUtc { get; set; } = DateTime.UtcNow;
+        public bool IsRead { get; set; } = false;
     }
 } 

@@ -28,6 +28,13 @@ namespace NutritionAmbition.Backend.API.Repositories
                 .Ascending(cm => cm.FoodEntryId);
             var indexOptionsCompound = new CreateIndexOptions { Name = "AccountId_FoodEntryId_Index" };
             _coachMessages.Indexes.CreateOne(new CreateIndexModel<CoachMessage>(indexKeysCompound, indexOptionsCompound));
+            
+            // Compound index for AccountId and LoggedDateUtc
+            var indexKeysDate = Builders<CoachMessage>.IndexKeys
+                .Ascending(cm => cm.AccountId)
+                .Ascending(cm => cm.LoggedDateUtc);
+            var indexOptionsDate = new CreateIndexOptions { Name = "AccountId_LoggedDateUtc_Index" };
+            _coachMessages.Indexes.CreateOne(new CreateIndexModel<CoachMessage>(indexKeysDate, indexOptionsDate));
         }
 
         public async Task<string> AddAsync(CoachMessage coachMessage)
@@ -101,6 +108,95 @@ namespace NutritionAmbition.Backend.API.Repositories
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error retrieving coach messages for food entry {FoodEntryId}", foodEntryId);
+                
+                throw;
+            }
+        }
+        
+        public async Task<List<CoachMessage>> GetByDateAsync(string accountId, DateTime loggedDate)
+        {
+            try
+            {
+                _logger.LogInformation("Retrieving coach messages for account {AccountId} on date {LoggedDate}", 
+                    accountId, loggedDate.Date);
+                
+                // Create a date range filter for the entire day
+                var startOfDay = loggedDate.Date;
+                var endOfDay = startOfDay.AddDays(1).AddTicks(-1);
+                
+                var filter = Builders<CoachMessage>.Filter.Eq(cm => cm.AccountId, accountId) &
+                             Builders<CoachMessage>.Filter.Gte(cm => cm.LoggedDateUtc, startOfDay) &
+                             Builders<CoachMessage>.Filter.Lte(cm => cm.LoggedDateUtc, endOfDay);
+                
+                var messages = await _coachMessages
+                    .Find(filter)
+                    .SortByDescending(cm => cm.TimestampUtc)
+                    .ToListAsync();
+                
+                _logger.LogInformation("Retrieved {Count} coach messages for account {AccountId} on date {LoggedDate}", 
+                    messages.Count, accountId, loggedDate.Date);
+                
+                return messages;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving coach messages for account {AccountId} on date {LoggedDate}", 
+                    accountId, loggedDate.Date);
+                
+                throw;
+            }
+        }
+        
+        public async Task<int> DeleteByDateAsync(string accountId, DateTime? loggedDate)
+        {
+            try
+            {
+                DeleteResult result;
+                
+                if (loggedDate.HasValue)
+                {
+                    // Create a date range filter for the entire day
+                    var startOfDay = loggedDate.Value.Date;
+                    var endOfDay = startOfDay.AddDays(1).AddTicks(-1);
+                    
+                    var filter = Builders<CoachMessage>.Filter.Eq(cm => cm.AccountId, accountId) &
+                                 Builders<CoachMessage>.Filter.Gte(cm => cm.LoggedDateUtc, startOfDay) &
+                                 Builders<CoachMessage>.Filter.Lte(cm => cm.LoggedDateUtc, endOfDay);
+                    
+                    _logger.LogInformation("Deleting coach messages for account {AccountId} on date {LoggedDate}", 
+                        accountId, loggedDate.Value.Date);
+                    
+                    result = await _coachMessages.DeleteManyAsync(filter);
+                    
+                    _logger.LogInformation("Deleted {Count} coach messages for account {AccountId} on date {LoggedDate}", 
+                        result.DeletedCount, accountId, loggedDate.Value.Date);
+                }
+                else
+                {
+                    // Delete all messages for this account
+                    var filter = Builders<CoachMessage>.Filter.Eq(cm => cm.AccountId, accountId);
+                    
+                    _logger.LogInformation("Deleting ALL coach messages for account {AccountId}", accountId);
+                    
+                    result = await _coachMessages.DeleteManyAsync(filter);
+                    
+                    _logger.LogInformation("Deleted {Count} coach messages for account {AccountId}", 
+                        result.DeletedCount, accountId);
+                }
+                
+                return (int)result.DeletedCount;
+            }
+            catch (Exception ex)
+            {
+                if (loggedDate.HasValue)
+                {
+                    _logger.LogError(ex, "Error deleting coach messages for account {AccountId} on date {LoggedDate}", 
+                        accountId, loggedDate.Value.Date);
+                }
+                else
+                {
+                    _logger.LogError(ex, "Error deleting ALL coach messages for account {AccountId}", accountId);
+                }
                 
                 throw;
             }
