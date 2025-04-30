@@ -1,17 +1,7 @@
 using System;
 using System.Collections.Generic;
-
 namespace NutritionAmbition.Backend.API.Models
 {
-    // Define MealType enum
-    public enum MealType
-    {
-        Unknown,
-        Breakfast,
-        Lunch,
-        Dinner,
-        Snack
-    }
 
     public class FoodEntry : Model
     {

@@ -4,7 +4,6 @@ using NutritionAmbition.Backend.API.DataContracts;
 using System.Text.Json;
 using System.Net.Http;
 using System.Text;
-using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Settings;
 
 namespace NutritionAmbition.Backend.API.Services
@@ -38,10 +37,10 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 var aiRequest = new
                 {
-                    model = "gpt-4",
+                    model = _openAiSettings.Model,
                     messages = new[]
                     {
-                        new { role = "system", content = "You are a nutrition assistant that helps parse food descriptions into structured data. Extract food items with their quantities from the user's input. Respond with a JSON object containing an array of meal items, each with a name and quantity." },
+                        new { role = "system", content = "You are a nutrition assistant that helps parse food descriptions into structured data. Extract food items with their quantities from the user's input." },
                         new { role = "user", content = foodDescription }
                     },
                     temperature = 0.2,
@@ -61,11 +60,7 @@ namespace NutritionAmbition.Backend.API.Services
                 // Simulate AI response for development
                 var simulatedResponse = SimulateAiResponse(foodDescription);
                 
-                return new ParseFoodTextResponse
-                {
-                    MealItems = simulatedResponse.MealItems,
-                    Success = true
-                };
+                return simulatedResponse;
             }
             catch (Exception ex)
             {
@@ -85,31 +80,12 @@ namespace NutritionAmbition.Backend.API.Services
             
             var response = new ParseFoodTextResponse
             {
-                MealItems = new List<MealItem>(),
                 Success = true
             };
 
-            if (foodDescription.Contains("egg") && foodDescription.Contains("burrito"))
-            {
-                response.MealItems.Add(new MealItem { Name = "Egg and Avocado Breakfast Burrito", Quantity = "1" });
-            }
+            // Since MealItem has been removed, we simply return a successful response
+            // The actual food items will be handled by FoodItem and FoodGroup elsewhere
             
-            if (foodDescription.Contains("fruit"))
-            {
-                response.MealItems.Add(new MealItem { Name = "Mixed Fresh Fruit", Quantity = "1 cup" });
-            }
-            
-            if (foodDescription.Contains("coffee"))
-            {
-                response.MealItems.Add(new MealItem { Name = "Black Coffee", Quantity = "1 cup" });
-            }
-
-            // If no specific items were detected, add a generic entry
-            if (response.MealItems.Count == 0)
-            {
-                response.MealItems.Add(new MealItem { Name = foodDescription, Quantity = "1 serving" });
-            }
-
             return response;
         }
     }

@@ -71,6 +71,10 @@ builder.Services.AddSingleton<AiService>(); // Assuming this is the AI Conversat
 builder.Services.AddSingleton<IFoodEntryService, FoodEntryService>();
 builder.Services.AddScoped<IFoodParsingService, FoodParsingService>();
 
+// Register the DailyGoal service and repository
+builder.Services.AddSingleton<DailyGoalRepository>();
+builder.Services.AddSingleton<IDailyGoalService, DailyGoalService>();
+
 // Register Nutritionix Service with HttpClient
 builder.Services.AddHttpClient<NutritionixClient>();
 builder.Services.AddSingleton<NutritionixClient>();
@@ -78,11 +82,8 @@ builder.Services.AddSingleton<INutritionixService, NutritionixService>();
 builder.Services.AddSingleton<INutritionService, NutritionService>();
 
 // Register OpenAI Service with HttpClient
-builder.Services.AddHttpClient<OpenAiClient>();
-builder.Services.AddSingleton<OpenAiClient>();
+builder.Services.AddHttpClient<IOpenAiService, OpenAiService>();
 builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
-
-
 
 // Register the main Nutrition Service (now using Nutritionix)
 
