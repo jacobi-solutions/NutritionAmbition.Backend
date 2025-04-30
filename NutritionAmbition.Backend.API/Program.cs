@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using MongoDB.Bson.Serialization.Conventions;
 using MongoDB.Driver;
 using NutritionAmbition.Backend.API;
+using NutritionAmbition.Backend.API.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -136,6 +137,9 @@ builder.Services.AddCors(options =>
 
 // Build the app
 var app = builder.Build();
+
+// Use anonymous auth middleware before authentication
+app.UseMiddleware<AnonymousAuthMiddleware>();
 
 // ✅ Use Authentication & Authorization Middleware
 app.UseAuthentication();

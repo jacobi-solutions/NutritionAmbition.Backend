@@ -1,8 +1,8 @@
 namespace NutritionAmbition.Backend.API.DataContracts
 {
     public class Request
-  {
-    // any common request fields needed
-  }
-
+    {
+        public string? AccountId { get; set; }
+        public bool IsAnonymousUser { get; set; } = false;
+    }
 }

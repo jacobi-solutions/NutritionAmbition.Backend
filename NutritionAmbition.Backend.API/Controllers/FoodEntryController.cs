@@ -1,24 +1,31 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Authorization;
+using NutritionAmbition.Backend.API.Attributes;
 using NutritionAmbition.Backend.API.Services;
 using NutritionAmbition.Backend.API.DataContracts;
 using System.Threading.Tasks;
 using System.Linq;
+using Microsoft.Extensions.Logging;
+using NutritionAmbition.Backend.API.Extensions;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize]
+    [FlexibleAuthorize]
     public class FoodEntryController : ControllerBase
     {
         private readonly IFoodEntryService _foodEntryService;
         private readonly AccountsService _accountsService;
+        private readonly ILogger<FoodEntryController> _logger;
 
-        public FoodEntryController(IFoodEntryService foodEntryService, AccountsService accountsService)
+        public FoodEntryController(
+            IFoodEntryService foodEntryService, 
+            AccountsService accountsService,
+            ILogger<FoodEntryController> logger)
         {
             _foodEntryService = foodEntryService;
             _accountsService = accountsService;
+            _logger = logger;
         }
 
         [HttpPost("CreateFoodEntry")]
@@ -29,8 +36,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
             if (account == null)
             {
                 return Unauthorized();
@@ -48,8 +54,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
             if (account == null)
             {
                 return Unauthorized();
@@ -67,8 +72,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
             if (account == null)
             {
                 return Unauthorized();
@@ -91,8 +95,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
             if (account == null)
             {
                 return Unauthorized();
@@ -107,5 +110,4 @@ namespace NutritionAmbition.Backend.API.Controllers
             return Ok(response);
         }
     }
-
 }

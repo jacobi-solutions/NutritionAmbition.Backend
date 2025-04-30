@@ -127,6 +127,36 @@ namespace NutritionAmbition.Backend.API.Services
             return await _accountsRepo.GetAccountByGoogleAuthUserIdAsync(googleAuthUserId);
         }
 
+        /// <summary>
+        /// Creates a new anonymous account without requiring Firebase authentication
+        /// </summary>
+        /// <returns>The created anonymous account</returns>
+        public async Task<Account> CreateAnonymousAccountAsync()
+        {
+            try
+            {
+                // Generate a unique name for the anonymous user
+                string anonymousName = $"AnonymousUser_{Guid.NewGuid().ToString().Substring(0, 8)}";
+                
+                var account = new Account
+                {
+                    Name = anonymousName,
+                    Email = $"{anonymousName}@anonymous.user",
+                    EmailVerified = false,
+                    IsAdmin = false,
+                    GoogleAuthUserId = null // No Google auth for anonymous users
+                };
+
+                return await _accountsRepo.CreateAsync(account);
+            }
+            catch (Exception ex)
+            {
+                // Log error but propagate exception to middleware for handling
+                Console.WriteLine($"Error creating anonymous account: {ex.Message}");
+                throw;
+            }
+        }
+
         // public async Task<(bool IsSuccess, int StatusCode, string Message, object Data)> VerifyGoogleTokenAsync(string idToken)
         // {
         //     try
