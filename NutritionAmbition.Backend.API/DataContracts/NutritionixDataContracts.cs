@@ -9,6 +9,60 @@ namespace NutritionAmbition.Backend.API.DataContracts
         public List<NutritionixFood> Foods { get; set; } = new List<NutritionixFood>();
     }
 
+    public class SearchInstantResponse
+    {
+        [JsonPropertyName("branded")]
+        public List<BrandedFoodItem> Branded { get; set; } = new List<BrandedFoodItem>();
+
+        [JsonPropertyName("common")]
+        public List<CommonFoodItem> Common { get; set; } = new List<CommonFoodItem>();
+    }
+
+    public class BrandedFoodItem
+    {
+        [JsonPropertyName("food_name")]
+        public string FoodName { get; set; } = string.Empty;
+
+        [JsonPropertyName("brand_name")]
+        public string BrandName { get; set; } = string.Empty;
+
+        [JsonPropertyName("nix_item_id")]
+        public string NixItemId { get; set; } = string.Empty;
+
+        [JsonPropertyName("nf_calories")]
+        public double? Calories { get; set; }
+
+        [JsonPropertyName("photo")]
+        public NutritionixPhoto? Photo { get; set; }
+
+        [JsonPropertyName("nix_brand_id")]
+        public string? NixBrandId { get; set; }
+        
+        [JsonPropertyName("serving_qty")]
+        public double ServingQty { get; set; }
+
+        [JsonPropertyName("serving_unit")]
+        public string ServingUnit { get; set; } = string.Empty;
+    }
+
+    public class CommonFoodItem 
+    {
+        [JsonPropertyName("food_name")]
+        public string FoodName { get; set; } = string.Empty;
+
+        [JsonPropertyName("tag_id")]
+        public string? TagId { get; set; }
+
+        [JsonPropertyName("photo")]
+        public NutritionixPhoto? Photo { get; set; }
+
+        [JsonPropertyName("serving_unit")]
+        public string? ServingUnit { get; set; }
+
+        [JsonPropertyName("tag_name")]
+        public string? TagName { get; set; }
+    }
+
     public class NutritionixFood
     {
         [JsonPropertyName("food_name")]

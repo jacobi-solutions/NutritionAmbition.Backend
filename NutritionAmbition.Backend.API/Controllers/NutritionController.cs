@@ -4,12 +4,14 @@ using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Services;
 using System.Threading.Tasks;
 using System.Linq;
+using NutritionAmbition.Backend.API.Attributes;
+using NutritionAmbition.Backend.API.Extensions;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize]
+    [FlexibleAuthorize]
     public class NutritionController : ControllerBase
     {
         private readonly INutritionService _nutritionService;
@@ -37,8 +39,8 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
+            // Get account using the extension method which handles both auth types
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
             if (account == null)
             {
                 return Unauthorized();
@@ -60,8 +62,8 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
+            // Get account using the extension method which handles both auth types
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
             if (account == null)
             {
                 return Unauthorized();
@@ -74,6 +76,32 @@ namespace NutritionAmbition.Backend.API.Controllers
             if (!nutritionData.IsSuccess)
             {
                 return BadRequest(new { error = "Failed to process food text and get nutrition data", details = nutritionData.Errors });
+            }
+
+            return Ok(nutritionData);
+        }
+
+        [HttpPost("GetSmartNutritionData")]
+        public async Task<ActionResult<NutritionApiResponse>> GetSmartNutritionData([FromBody] ParseFoodTextRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            // Get account using the extension method which handles both auth types
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            if (account == null)
+            {
+                return Unauthorized();
+            }
+
+            _logger.LogInformation("Getting smart nutrition data: {FoodDescription}", request.FoodDescription);
+
+            var nutritionData = await _nutritionService.GetSmartNutritionDataAsync(account.Id, request.FoodDescription);
+            if (!nutritionData.IsSuccess)
+            {
+                return BadRequest(new { error = "Failed to get smart nutrition data", details = nutritionData.Errors });
             }
 
             return Ok(nutritionData);

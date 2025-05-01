@@ -64,7 +64,7 @@ namespace NutritionAmbition.Backend.API.Services
                     AccountId = accountId,
                     FoodEntryId = request.FoodEntryId,
                     Content = request.Content,
-                    Role = request.Role == "assistant" ? MessageRole.Assistant : MessageRole.User,
+                    Role = request.Role == "assistant" ? MessageRoleTypes.Assistant : MessageRoleTypes.User,
                     LoggedDateUtc = DateTime.UtcNow
                 };
 

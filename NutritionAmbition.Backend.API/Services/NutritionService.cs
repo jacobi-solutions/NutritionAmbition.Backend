@@ -12,6 +12,7 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription);
         Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription);
+        Task<NutritionApiResponse> GetSmartNutritionDataAsync(string accountId, string foodDescription);
     }
 
     public class NutritionService : INutritionService
@@ -142,6 +143,76 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogError(ex, "Error processing food text and getting nutrition data for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
                 response.AddError($"Error processing food text: {ex.Message}");
                 response.AiCoachResponse = "Sorry, an error occurred while processing your request.";
+                return response;
+            }
+        }
+
+        public async Task<NutritionApiResponse> GetSmartNutritionDataAsync(string accountId, string foodDescription)
+        {
+            var response = new NutritionApiResponse();
+            try
+            {
+                _logger.LogInformation("Smart nutrition lookup for account {AccountId}: {FoodDescription}", accountId, foodDescription);
+
+                // 1. First search for branded products
+                var searchResults = await _nutritionixService.SearchInstantAsync(foodDescription);
+                
+                // 2. Check if we have any confident branded matches
+                if (searchResults.Branded.Count > 0)
+                {
+                    _logger.LogInformation("Found {Count} branded results for query: {FoodDescription}", 
+                        searchResults.Branded.Count, foodDescription);
+                    
+                    // Take the first branded item that we're confident about
+                    foreach (var brandedItem in searchResults.Branded)
+                    {
+                        bool isConfident = await _nutritionixService.IsBrandedItemConfident(foodDescription, brandedItem);
+                        
+                        if (isConfident)
+                        {
+                            _logger.LogInformation("Using branded item for nutrition lookup: {BrandName} {FoodName}", 
+                                brandedItem.BrandName, brandedItem.FoodName);
+                            
+                            // Try to get detailed nutrition data with the Nix Item ID if available
+                            if (!string.IsNullOrEmpty(brandedItem.NixItemId))
+                            {
+                                string brandedQuery = $"{brandedItem.BrandName} {brandedItem.FoodName}";
+                                _logger.LogInformation("Searching for detailed nutrition with query: {BrandedQuery}", brandedQuery);
+                                
+                                // Get detailed nutrition data using natural/nutrients endpoint
+                                var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(brandedQuery);
+                                
+                                if (nutritionixResponse != null && nutritionixResponse.Foods.Any())
+                                {
+                                    _logger.LogInformation("Found detailed nutrition data for branded item: {BrandName} {FoodName}", 
+                                        brandedItem.BrandName, brandedItem.FoodName);
+                                    
+                                    response.Foods = MapNutritionixResponseToFoodNutrition(nutritionixResponse);
+                                    response.IsSuccess = true;
+                                    response.Source = "branded";
+                                    return response;
+                                }
+                            }
+                        }
+                    }
+                    
+                    _logger.LogInformation("No confident branded matches found, falling back to standard lookup");
+                }
+                
+                // 3. If no branded match found or detailed lookup failed, fall back to standard lookup
+                _logger.LogInformation("Falling back to standard nutrition lookup for: {FoodDescription}", foodDescription);
+                
+                var fallbackResponse = await GetNutritionDataForFoodItemAsync(accountId, foodDescription);
+                fallbackResponse.Source = "fallback";
+                
+                return fallbackResponse;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in smart nutrition lookup for account {AccountId}: {FoodDescription}", 
+                    accountId, foodDescription);
+                
+                response.AddError($"Error getting nutrition data: {ex.Message}");
                 return response;
             }
         }

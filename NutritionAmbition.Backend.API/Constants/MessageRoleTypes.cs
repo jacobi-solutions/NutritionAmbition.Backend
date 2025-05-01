@@ -1,6 +1,6 @@
 namespace NutritionAmbition.Backend.API.Models
 {
-    public enum MessageRole
+    public enum MessageRoleTypes
     {
         User,
         Assistant

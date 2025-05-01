@@ -11,6 +11,10 @@ namespace NutritionAmbition.Backend.API.DataContracts
         // 🟢 Add property for AI coach response
         [JsonPropertyName("aiCoachResponse")]
         public string? AiCoachResponse { get; set; }
+        
+        // Property to track source of nutrition data
+        [JsonPropertyName("source")]
+        public string? Source { get; set; }
     }
 
     public class FoodNutrition : Response
