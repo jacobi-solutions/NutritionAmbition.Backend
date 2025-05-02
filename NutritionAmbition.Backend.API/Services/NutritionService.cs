@@ -92,6 +92,13 @@ namespace NutritionAmbition.Backend.API.Services
                         // 🟢 Call AI to group the items
                         var groupedItems = await _openAiService.GroupFoodItemsAsync(foodDescription, parsedItems);
 
+                        // If grouping failed, fallback to individual groups
+                        if (groupedItems == null || !groupedItems.Any())
+                        {
+                            _logger.LogWarning("AI grouping failed or returned empty list, falling back to individual groups");
+                            groupedItems = parsedItems.Select(x => new FoodGroup { GroupName = x.Name, Items = new List<FoodItem> { x } }).ToList();
+                        }
+
                         var createFoodEntryRequest = new CreateFoodEntryRequest
                         {
                             Description = foodDescription,
@@ -154,58 +161,207 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogInformation("Smart nutrition lookup for account {AccountId}: {FoodDescription}", accountId, foodDescription);
 
-                // 1. First search for branded products
-                var searchResults = await _nutritionixService.SearchInstantAsync(foodDescription);
+                // 1. First, parse the food description using OpenAI to identify individual items and whether they're branded
+                var parsedFoodsResponse = await _openAiService.ParseFoodTextAsync(foodDescription);
                 
-                // 2. Check if we have any confident branded matches
-                if (searchResults.Branded.Count > 0)
-                {
-                    _logger.LogInformation("Found {Count} branded results for query: {FoodDescription}", 
-                        searchResults.Branded.Count, foodDescription);
+                // Log the number of parsed foods and their details
+                _logger.LogInformation("OpenAI parsed {Count} foods from description", 
+                    parsedFoodsResponse.Foods?.Count ?? 0);
                     
-                    // Take the first branded item that we're confident about
-                    foreach (var brandedItem in searchResults.Branded)
+                if (parsedFoodsResponse.Foods != null)
+                {
+                    foreach (var food in parsedFoodsResponse.Foods)
                     {
-                        bool isConfident = await _nutritionixService.IsBrandedItemConfident(foodDescription, brandedItem);
+                        _logger.LogInformation("Parsed food: Name={Name}, Quantity={Quantity}, Unit={Unit}, IsBranded={IsBranded}", 
+                            food.Name, food.Quantity, food.Unit, food.IsBranded);
+                    }
+                }
+                
+                if (!parsedFoodsResponse.IsSuccess)
+                {
+                    _logger.LogWarning("Failed to parse food description: {Errors}", 
+                        string.Join(", ", parsedFoodsResponse.Errors.Select(e => e.ErrorMessage)));
+                    response.AddError("Failed to parse food description. Please try with a clearer description.");
+                    return response;
+                }
+                
+                if (parsedFoodsResponse.Foods == null || !parsedFoodsResponse.Foods.Any())
+                {
+                    _logger.LogWarning("No foods identified in description: {FoodDescription}", foodDescription);
+                    response.AddError("No food items could be identified from the description.");
+                    return response;
+                }
+                
+                // 2. Split the parsed foods into branded and generic items
+                var brandedItems = parsedFoodsResponse.Foods.Where(f => f.IsBranded).ToList();
+                var genericItems = parsedFoodsResponse.Foods.Where(f => !f.IsBranded).ToList();
+                
+                _logger.LogInformation("Found {BrandedCount} branded items and {GenericCount} generic items", 
+                    brandedItems.Count, genericItems.Count);
+                
+                // Lists to collect the results
+                var allFoodNutrition = new List<FoodNutrition>();
+                var brandedProcessed = 0;
+                var genericProcessed = 0;
+                
+                // 3. Process branded items - look them up individually for more precise results
+                foreach (var brandedItem in brandedItems)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Looking up branded item: {Name} ({Quantity} {Unit})",
+                            brandedItem.Name, brandedItem.Quantity, brandedItem.Unit);
                         
-                        if (isConfident)
+                        // Search for the branded item
+                        var searchResults = await _nutritionixService.SearchInstantAsync(brandedItem.Name);
+                        
+                        if (searchResults.Branded.Count > 0)
                         {
-                            _logger.LogInformation("Using branded item for nutrition lookup: {BrandName} {FoodName}", 
-                                brandedItem.BrandName, brandedItem.FoodName);
-                            
-                            // Try to get detailed nutrition data with the Nix Item ID if available
-                            if (!string.IsNullOrEmpty(brandedItem.NixItemId))
+                            // Try to find a confident match
+                            foreach (var result in searchResults.Branded)
                             {
-                                string brandedQuery = $"{brandedItem.BrandName} {brandedItem.FoodName}";
-                                _logger.LogInformation("Searching for detailed nutrition with query: {BrandedQuery}", brandedQuery);
+                                bool isConfident = await _nutritionixService.IsBrandedItemConfident(brandedItem.Name, result);
                                 
-                                // Get detailed nutrition data using natural/nutrients endpoint
-                                var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(brandedQuery);
-                                
-                                if (nutritionixResponse != null && nutritionixResponse.Foods.Any())
+                                if (isConfident)
                                 {
-                                    _logger.LogInformation("Found detailed nutrition data for branded item: {BrandName} {FoodName}", 
-                                        brandedItem.BrandName, brandedItem.FoodName);
+                                    _logger.LogInformation("Found confident branded match: {BrandName} {FoodName}", 
+                                        result.BrandName, result.FoodName);
                                     
-                                    response.Foods = MapNutritionixResponseToFoodNutrition(nutritionixResponse);
-                                    response.IsSuccess = true;
-                                    response.Source = "branded";
-                                    return response;
+                                    // Get detailed nutrition data
+                                    string brandedQuery = $"{result.BrandName} {result.FoodName}";
+                                    var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(brandedQuery);
+                                    
+                                    if (nutritionixResponse != null && nutritionixResponse.Foods.Any())
+                                    {
+                                        var foods = MapNutritionixResponseToFoodNutrition(nutritionixResponse);
+                                        allFoodNutrition.AddRange(foods);
+                                        brandedProcessed++;
+                                        break; // Found a match, move to next item
+                                    }
                                 }
                             }
                         }
+                        
+                        if (brandedProcessed < 1) // If no branded match was found
+                        {
+                            _logger.LogWarning("No confident branded match found for: {Name}", brandedItem.Name);
+                            // We'll handle this item as generic
+                            genericItems.Add(brandedItem);
+                        }
                     }
-                    
-                    _logger.LogInformation("No confident branded matches found, falling back to standard lookup");
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error processing branded item: {Name}", brandedItem.Name);
+                        // Continue with other items
+                    }
                 }
                 
-                // 3. If no branded match found or detailed lookup failed, fall back to standard lookup
-                _logger.LogInformation("Falling back to standard nutrition lookup for: {FoodDescription}", foodDescription);
+                // 4. Process generic items - combine them for a single query if there are any
+                if (genericItems.Any())
+                {
+                    try
+                    {
+                        // Build a combined query for all generic items
+                        var combinedQuery = string.Join(", ", genericItems.Select(item => 
+                            $"{item.Quantity} {item.Unit} {item.Name}".Trim()));
+                        
+                        _logger.LogInformation("Looking up combined generic items: {Query}", combinedQuery);
+                        
+                        var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(combinedQuery);
+                        
+                        if (nutritionixResponse != null && nutritionixResponse.Foods.Any())
+                        {
+                            var foods = MapNutritionixResponseToFoodNutrition(nutritionixResponse);
+                            allFoodNutrition.AddRange(foods);
+                            genericProcessed = nutritionixResponse.Foods.Count;
+                        }
+                        else
+                        {
+                            _logger.LogWarning("No nutrition data found for generic items: {Query}", combinedQuery);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error processing generic items");
+                    }
+                }
                 
-                var fallbackResponse = await GetNutritionDataForFoodItemAsync(accountId, foodDescription);
-                fallbackResponse.Source = "fallback";
-                
-                return fallbackResponse;
+                // 5. Check if we found any nutrition data
+                if (allFoodNutrition.Any())
+                {
+                    response.Foods = allFoodNutrition;
+                    response.IsSuccess = true;
+                    response.Source = "smart";
+                    
+                    _logger.LogInformation("Smart nutrition lookup successful: Found data for {BrandedCount} branded and {GenericCount} generic items", 
+                        brandedProcessed, genericProcessed);
+                    
+                    // Save the food entry to the database with grouping
+                    try
+                    {
+                        // Map FoodNutrition to FoodItem for grouping and saving
+                        var parsedItems = MapFoodNutritionToFoodItem(allFoodNutrition);
+                        
+                        // Group the food items
+                        var groupedItems = await _openAiService.GroupFoodItemsAsync(foodDescription, parsedItems);
+                        
+                        // If grouping failed, fallback to individual groups
+                        if (groupedItems == null || !groupedItems.Any())
+                        {
+                            _logger.LogWarning("AI grouping failed or returned empty list, falling back to individual groups");
+                            groupedItems = parsedItems.Select(x => new FoodGroup { GroupName = x.Name, Items = new List<FoodItem> { x } }).ToList();
+                        }
+                        
+                        // Create the food entry request
+                        var createFoodEntryRequest = new CreateFoodEntryRequest
+                        {
+                            Description = foodDescription,
+                            Meal = MealType.Unknown, // Default for now
+                            LoggedDateUtc = DateTime.UtcNow,
+                            GroupedItems = groupedItems
+                        };
+                        
+                        // Save the food entry
+                        var saveResponse = await _foodEntryService.AddFoodEntryAsync(accountId, createFoodEntryRequest);
+                        
+                        if (!saveResponse.IsSuccess)
+                        {
+                            _logger.LogWarning("Failed to save food entry for Account {AccountId}: {Errors}", 
+                                accountId, string.Join(", ", saveResponse.Errors));
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Successfully saved food entry {FoodEntryId} for Account {AccountId}", 
+                                saveResponse.FoodEntry?.Id, accountId);
+                        }
+                    }
+                    catch (Exception saveEx)
+                    {
+                        _logger.LogError(saveEx, "Error grouping or saving food entry for Account {AccountId} and description {FoodDescription}", 
+                            accountId, foodDescription);
+                        // Continue with the response even if saving fails
+                    }
+                    
+                    // Generate AI coach response based on the first food item
+                    try
+                    {
+                        response.AiCoachResponse = await _openAiService.GenerateCoachResponseAsync(foodDescription, allFoodNutrition[0]);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to generate AI coach response");
+                        response.AiCoachResponse = "Logged!";
+                    }
+                    
+                    return response;
+                }
+                else
+                {
+                    // If no nutrition data found, return an error
+                    _logger.LogWarning("No nutrition data found for any items in: {FoodDescription}", foodDescription);
+                    response.AddError("Could not find nutrition data for the specified food items.");
+                    return response;
+                }
             }
             catch (Exception ex)
             {

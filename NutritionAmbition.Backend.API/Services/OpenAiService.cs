@@ -115,7 +115,7 @@ namespace NutritionAmbition.Backend.API.Services
                     new
                     {
                         role = "system",
-                        content = "You are a nutrition assistant that helps parse food descriptions into structured data. Your task is to understand various food descriptions and break them down into individual items. For each item, determine the name and quantity."
+                        content = "You are a nutrition assistant. Break down the user's food description into individual food items. For each item, extract:\n- name (string)\n- quantity (number)\n- unit (string)\n- isBranded (boolean)\n\nRespond ONLY with a JSON object structured like this:\n{\n  'foods': [\n    { 'name': 'coffee', 'quantity': 16, 'unit': 'oz', 'isBranded': false },\n    { 'name': 'ryze mushroom mix', 'quantity': 1, 'unit': 'tablespoon', 'isBranded': true },\n    { 'name': 'silk organic soy milk', 'quantity': 100, 'unit': 'g', 'isBranded': true }\n  ]\n}\nNo extra text, no explanations."
                     },
                     new
                     {
@@ -124,23 +124,41 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                 };
 
-                await GetChatResponseAsync(messages, 0.1f, 800, "json_object");
-
-                // We don't need to process the content since we've moved away from MealItems
-                // Just return a success response
-                return new ParseFoodTextResponse
+                // Get the chat response from OpenAI
+                var aiContent = await GetChatResponseAsync(messages, 0.1f, 800, "json_object");
+                
+                // Log the raw response
+                _logger.LogDebug("Raw OpenAI response: {RawResponse}", aiContent);
+                
+                try
                 {
-                    Success = true
-                };
+                    // Try to deserialize the OpenAI response into a ParseFoodTextResponse object
+                    var parsedResponse = JsonSerializer.Deserialize<ParseFoodTextResponse>(aiContent, new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+                    
+                    if (parsedResponse == null)
+                    {
+                        _logger.LogError("JSON deserialization failed: OpenAI response deserialized to null. Raw response: {RawResponse}", aiContent);
+                        throw new InvalidOperationException("Failed to parse OpenAI food data: The response was empty or invalid");
+                    }
+                    
+                    _logger.LogInformation("Successfully parsed {Count} food items from OpenAI response", 
+                        parsedResponse.Foods?.Count ?? 0);
+                    return parsedResponse;
+                }
+                catch (JsonException ex)
+                {
+                    // Log error with full OpenAI response and throw exception
+                    _logger.LogError(ex, "JSON deserialization failed: Error deserializing OpenAI response. Raw response: {RawResponse}", aiContent);
+                    throw new InvalidOperationException($"Failed to parse OpenAI food data: {ex.Message}", ex);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error parsing food text with OpenAI: {FoodDescription}", foodDescription);
-                return new ParseFoodTextResponse
-                {
-                    Success = false,
-                    ErrorMessage = $"Error parsing food text: {ex.Message}"
-                };
+                throw; // Re-throw to propagate the exception
             }
         }
 

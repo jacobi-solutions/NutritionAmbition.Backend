@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Net.Http;
 using System.Text;
 using NutritionAmbition.Backend.API.Settings;
+using System;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -65,11 +66,9 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error parsing food text: {FoodDescription}", foodDescription);
-                return new ParseFoodTextResponse
-                {
-                    Success = false,
-                    ErrorMessage = $"Error parsing food text: {ex.Message}"
-                };
+                var response = new ParseFoodTextResponse();
+                response.AddError($"Error parsing food text: {ex.Message}");
+                return response;
             }
         }
 
@@ -78,15 +77,9 @@ namespace NutritionAmbition.Backend.API.Services
             // This is a simple simulation of what the AI would return
             // In a real implementation, this would be replaced with actual AI API calls
             
-            var response = new ParseFoodTextResponse
-            {
-                Success = true
-            };
-
-            // Since MealItem has been removed, we simply return a successful response
-            // The actual food items will be handled by FoodItem and FoodGroup elsewhere
-            
-            return response;
+            // Return a successful response
+            // IsSuccess is true by default in the Response base class
+            return new ParseFoodTextResponse();
         }
     }
 }

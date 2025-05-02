@@ -5,6 +5,7 @@ using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Extensions;
 using NutritionAmbition.Backend.API.Services;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
@@ -51,6 +52,16 @@ namespace NutritionAmbition.Backend.API.Controllers
             );
 
             var response = await _foodParsingService.ParseFoodTextAsync(request.FoodDescription);
+            
+            if (!response.IsSuccess)
+            {
+                return BadRequest(new 
+                { 
+                    error = "Failed to parse food text",
+                    details = response.Errors.Select(e => e.ErrorMessage)
+                });
+            }
+            
             return Ok(response);
         }
     }
