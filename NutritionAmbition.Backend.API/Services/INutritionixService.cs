@@ -7,6 +7,5 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<NutritionixResponse?> GetNutritionDataAsync(string query);
         Task<SearchInstantResponse> SearchInstantAsync(string query);
-        Task<bool> IsBrandedItemConfident(string query, BrandedFoodItem brandedItem);
     }
 }

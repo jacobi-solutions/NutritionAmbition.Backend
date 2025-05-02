@@ -10,6 +10,7 @@ namespace NutritionAmbition.Backend.API.DataContracts
     public class ParsedFoodItem
     {
         public string Name { get; set; } = string.Empty;
+        public string? Brand { get; set; }
         public double Quantity { get; set; }
         public string Unit { get; set; } = string.Empty;
         public bool IsBranded { get; set; }

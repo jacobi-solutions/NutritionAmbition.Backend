@@ -18,6 +18,8 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
         Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults);
+        Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods);
+        Task<int> SelectBestGenericFoodAsync(string userQuery, List<CommonFoodItem> commonFoods);
         Task<string> GenerateCoachResponseAsync(string foodDescription, FoodNutrition nutritionData);
         Task<List<FoodGroup>> GroupFoodItemsAsync(string originalDescription, List<FoodItem> foodItems);
     }
@@ -115,7 +117,7 @@ namespace NutritionAmbition.Backend.API.Services
                     new
                     {
                         role = "system",
-                        content = "You are a nutrition assistant. Break down the user's food description into individual food items. For each item, extract:\n- name (string)\n- quantity (number)\n- unit (string)\n- isBranded (boolean)\n\nRespond ONLY with a JSON object structured like this:\n{\n  'foods': [\n    { 'name': 'coffee', 'quantity': 16, 'unit': 'oz', 'isBranded': false },\n    { 'name': 'ryze mushroom mix', 'quantity': 1, 'unit': 'tablespoon', 'isBranded': true },\n    { 'name': 'silk organic soy milk', 'quantity': 100, 'unit': 'g', 'isBranded': true }\n  ]\n}\nNo extra text, no explanations."
+                        content = "You are a nutrition assistant. Break down the user's food description into individual food items. For each item, extract:\n\nname (string)\n\nquantity (number)\n\nunit (string)\n\nbrand (string, optional — leave empty if no brand mentioned)\n\nisBranded (boolean)\n\nRespond ONLY with a JSON object structured like this:\n\n{\n'foods': [\n{ 'name': 'coffee', 'quantity': 16, 'unit': 'oz', 'brand': '', 'isBranded': false },\n{ 'name': 'cheese pizza', 'quantity': 1, 'unit': 'large slice', 'brand': 'mellow mushroom', 'isBranded': true }\n]\n}\n\nNo extra text, no explanations."
                     },
                     new
                     {
@@ -255,6 +257,168 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogError(ex, "Error selecting best food match with OpenAI: {FoodDescription}", foodDescription);
                 // Default to first result in case of error
                 return searchResults.Any() ? searchResults[0].FdcId : 0; // Return 0 if searchResults is empty
+            }
+        }
+
+        /// <summary>
+        /// Selects the best matching branded food item from a list of branded foods
+        /// </summary>
+        /// <param name="userQuery">The user's food description</param>
+        /// <param name="quantity">The quantity of the food</param>
+        /// <param name="unit">The unit of the food</param>
+        /// <param name="brandedFoods">List of potential branded food matches</param>
+        /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
+        public async Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods)
+        {
+            if (brandedFoods == null || !brandedFoods.Any())
+            {
+                return -1;
+            }
+
+            try
+            {
+                _logger.LogInformation("Selecting best branded food with OpenAI from {Count} options for query: {UserQuery} ({Quantity} {Unit})", 
+                    brandedFoods.Count, userQuery, quantity, unit);
+
+                // Format the branded foods list for the prompt
+                var formattedOptions = new StringBuilder();
+                for (int i = 0; i < brandedFoods.Count; i++)
+                {
+                    var food = brandedFoods[i];
+                    formattedOptions.AppendLine($"{i + 1}. {food.BrandName} {food.FoodName}");
+                }
+
+                // Create messages for OpenAI
+                var messages = new List<object>
+                {
+                    new
+                    {
+                        role = "system",
+                        content = "You are a nutrition assistant helping users match their food descriptions to the best branded food from a list. The user's report includes the food name, quantity, and unit. Choose the food item that most closely matches based on food name, brand name, and portion size. Only respond with the number of the best matching option. If none are a good match, respond with -1."
+                    },
+                    new
+                    {
+                        role = "user",
+                        content = $"The user reported eating: {quantity} {unit} {userQuery}\n\nAvailable branded food options:\n{formattedOptions}"
+                    }
+                };
+
+                // Get response from OpenAI
+                var aiResponse = await GetChatResponseAsync(messages, 0.2f, 10);
+                
+                // Log the raw response
+                _logger.LogDebug("Raw OpenAI response for branded food selection: {RawResponse}", aiResponse);
+
+                // Parse the response as an integer
+                if (int.TryParse(aiResponse.Trim(), out int selectedOption))
+                {
+                    // Check if the selection is valid
+                    if (selectedOption == -1)
+                    {
+                        _logger.LogInformation("OpenAI determined no good match exists among branded foods");
+                        return -1;
+                    }
+                    else if (selectedOption < 1 || selectedOption > brandedFoods.Count)
+                    {
+                        _logger.LogWarning("OpenAI returned an out-of-range selection: {Selection}. Valid range is 1-{Count}", 
+                            selectedOption, brandedFoods.Count);
+                        return -1;
+                    }
+
+                    // Convert from 1-based to 0-based index
+                    return selectedOption - 1;
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to parse OpenAI response as integer: {Response}", aiResponse);
+                    return -1;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error selecting best branded food with OpenAI: {UserQuery}", userQuery);
+                return -1;
+            }
+        }
+
+        /// <summary>
+        /// Selects the best matching generic food item from a list of common foods
+        /// </summary>
+        /// <param name="userQuery">The user's food description</param>
+        /// <param name="commonFoods">List of potential common (generic) food matches</param>
+        /// <returns>The index of the best matching generic food item (0-based) or -1 if no match</returns>
+        public async Task<int> SelectBestGenericFoodAsync(string userQuery, List<CommonFoodItem> commonFoods)
+        {
+            if (commonFoods == null || !commonFoods.Any())
+            {
+                return -1;
+            }
+
+            try
+            {
+                _logger.LogInformation("Selecting best generic food with OpenAI from {Count} options for query: {UserQuery}", 
+                    commonFoods.Count, userQuery);
+
+                // Format the common foods list for the prompt
+                var formattedOptions = new StringBuilder();
+                for (int i = 0; i < commonFoods.Count; i++)
+                {
+                    var food = commonFoods[i];
+                    formattedOptions.AppendLine($"Option {i + 1}:");
+                    formattedOptions.AppendLine($"- Food Name: {food.FoodName}");
+                    
+                    if (!string.IsNullOrEmpty(food.ServingUnit))
+                    {
+                        formattedOptions.AppendLine($"- Serving Unit: {food.ServingUnit}");
+                    }
+                    
+                    formattedOptions.AppendLine();
+                }
+
+                // Create messages for OpenAI
+                var messages = new List<object>
+                {
+                    new
+                    {
+                        role = "system",
+                        content = "You are a nutrition assistant. Given a user's food description and a list of options from a nutrition database, pick the best match."
+                    },
+                    new
+                    {
+                        role = "user",
+                        content = $"Find the best match for this food description: {userQuery}\n\nOptions:\n{formattedOptions}\n\nRespond with ONLY a JSON object like: {{ \"selectedOption\": 1 }}"
+                    }
+                };
+
+                // Get response from OpenAI
+                var aiResponse = await GetChatResponseAsync(messages, 0.2f, null, "json_object");
+                
+                // Log the raw response
+                _logger.LogDebug("Raw OpenAI response for generic food selection: {RawResponse}", aiResponse);
+
+                // Parse the response
+                var selectionResponse = JsonSerializer.Deserialize<FoodSelectionResponse>(aiResponse, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (selectionResponse == null || selectionResponse.SelectedOption < 1 || selectionResponse.SelectedOption > commonFoods.Count)
+                {
+                    _logger.LogWarning("OpenAI returned an invalid selection: {Response}", aiResponse);
+                    return -1;
+                }
+
+                // Convert from 1-based to 0-based index
+                int selectedIndex = selectionResponse.SelectedOption - 1;
+                _logger.LogInformation("Selected generic food at index {Index}: {FoodName}", 
+                    selectedIndex, commonFoods[selectedIndex].FoodName);
+                
+                return selectedIndex;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error selecting best generic food with OpenAI: {UserQuery}", userQuery);
+                return -1;
             }
         }
 

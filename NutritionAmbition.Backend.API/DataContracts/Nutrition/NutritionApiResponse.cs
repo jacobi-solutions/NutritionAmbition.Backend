@@ -22,6 +22,9 @@ namespace NutritionAmbition.Backend.API.DataContracts
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
         
+        [JsonPropertyName("brandName")]
+        public string? BrandName { get; set; }
+        
         [JsonPropertyName("quantity")]
         public string Quantity { get; set; } = string.Empty;
         

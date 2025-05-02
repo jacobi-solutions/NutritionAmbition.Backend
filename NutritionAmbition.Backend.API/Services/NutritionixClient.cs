@@ -74,5 +74,76 @@ namespace NutritionAmbition.Backend.API.Services
             return await JsonSerializer.DeserializeAsync<SearchInstantResponse>(responseStream, 
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new SearchInstantResponse();
         }
+
+        public async Task<NutritionixFood> GetNutritionByItemIdAsync(string nixItemId)
+        {
+            try
+            {
+                // Use the item ID to get detailed nutrition information
+                var queryParams = new Dictionary<string, string>
+                {
+                    { "nix_item_id", nixItemId }
+                };
+
+                var response = await GetAsync("search/item", queryParams);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var nutritionixResponse = JsonSerializer.Deserialize<NutritionixResponse>(responseContent, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (nutritionixResponse?.Foods == null || nutritionixResponse.Foods.Count == 0)
+                {
+                    return null;
+                }
+
+                // Return the first (and typically only) food item
+                return nutritionixResponse.Foods[0];
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        public async Task<NutritionixFood> GetNutritionByTagNameAsync(string tagName)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(tagName))
+                {
+                    return null;
+                }
+
+                // Use natural/nutrients endpoint with the tag_name as query
+                var data = new { query = tagName };
+                var response = await PostAsync("natural/nutrients", data);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var nutritionixResponse = JsonSerializer.Deserialize<NutritionixResponse>(responseContent, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (nutritionixResponse?.Foods == null || nutritionixResponse.Foods.Count == 0)
+                {
+                    return null;
+                }
+
+                // Return the first (and typically only) food item
+                return nutritionixResponse.Foods[0];
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
     }
 } 
