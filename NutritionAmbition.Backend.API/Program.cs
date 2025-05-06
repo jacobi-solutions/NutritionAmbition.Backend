@@ -70,7 +70,6 @@ builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongo
 builder.Services.AddSingleton<AccountsService>();
 builder.Services.AddSingleton<AiService>(); // Assuming this is the AI Conversation Handler
 builder.Services.AddSingleton<IFoodEntryService, FoodEntryService>();
-builder.Services.AddSingleton<IFoodParsingService, FoodParsingService>();
 
 // Register the DailyGoal service and repository
 builder.Services.AddSingleton<DailyGoalRepository>();
