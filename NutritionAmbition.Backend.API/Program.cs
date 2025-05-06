@@ -70,7 +70,7 @@ builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongo
 builder.Services.AddSingleton<AccountsService>();
 builder.Services.AddSingleton<AiService>(); // Assuming this is the AI Conversation Handler
 builder.Services.AddSingleton<IFoodEntryService, FoodEntryService>();
-builder.Services.AddScoped<IFoodParsingService, FoodParsingService>();
+builder.Services.AddSingleton<IFoodParsingService, FoodParsingService>();
 
 // Register the DailyGoal service and repository
 builder.Services.AddSingleton<DailyGoalRepository>();
@@ -79,6 +79,12 @@ builder.Services.AddSingleton<IDailyGoalService, DailyGoalService>();
 // Register the ChatMessage service and repository
 builder.Services.AddSingleton<ChatMessageRepository>();
 builder.Services.AddSingleton<IChatMessageService, ChatMessageService>();
+
+// Register the DailySummary service 
+builder.Services.AddSingleton<IDailySummaryService, DailySummaryService>();
+
+// Register the NutritionCalculation service
+builder.Services.AddSingleton<INutritionCalculationService, NutritionCalculationService>();
 
 // Register Nutritionix Service with HttpClient
 builder.Services.AddHttpClient<NutritionixClient>();
@@ -99,7 +105,8 @@ builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
 
 // Repos
 builder.Services.AddSingleton<AccountsRepository>();
-builder.Services.AddSingleton<FoodEntryRepository>();
+builder.Services.AddSingleton<FoodEntryRepository>(); // Make sure this is registered before IFoodEntryRepository
+builder.Services.AddSingleton<IFoodEntryRepository, FoodEntryRepository>();
 
 // ✅ Initialize Firebase Admin SDK
 var firebaseProjectId = firebaseSettings.ProjectId;
@@ -179,4 +186,3 @@ finally
 {
     Log.CloseAndFlush();
 }
-

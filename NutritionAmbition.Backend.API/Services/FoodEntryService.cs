@@ -20,11 +20,16 @@ namespace NutritionAmbition.Backend.API.Services
     public class FoodEntryService : IFoodEntryService
     {
         private readonly FoodEntryRepository _foodEntryRepository;
+        private readonly INutritionCalculationService _nutritionCalculationService;
         private readonly ILogger<FoodEntryService> _logger;
 
-        public FoodEntryService(FoodEntryRepository foodEntryRepository, ILogger<FoodEntryService> logger)
+        public FoodEntryService(
+            FoodEntryRepository foodEntryRepository, 
+            INutritionCalculationService nutritionCalculationService,
+            ILogger<FoodEntryService> logger)
         {
             _foodEntryRepository = foodEntryRepository;
+            _nutritionCalculationService = nutritionCalculationService;
             _logger = logger;
         }
 
@@ -63,18 +68,21 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 var entries = await _foodEntryRepository.GetByAccountIdAsync(accountId, request.LoggedDateUtc, request.Meal);
                 response.FoodEntries = entries;
-                response.IsSuccess = true;
 
-                // 🟢 Calculate summaries based on GroupedItems
+                // Calculate nutrition totals using NutritionCalculationService
                 if (entries.Any())
                 {
-                    // Flatten the items from all groups in all entries
-                    var allItems = entries.SelectMany(e => e.GroupedItems).SelectMany(g => g.Items);
-                    response.TotalCalories = allItems.Sum(i => i.Calories);
-                    response.TotalProtein = allItems.Sum(i => i.Protein);
-                    response.TotalCarbs = allItems.Sum(i => i.Carbohydrates);
-                    response.TotalFat = allItems.Sum(i => i.Fat);
+                    var foodItems = _nutritionCalculationService.FlattenEntries(entries);
+                    var nutritionTotals = _nutritionCalculationService.CalculateTotals(foodItems);
+                    
+                    // Map nutrition totals to response
+                    response.TotalCalories = nutritionTotals.TotalCalories;
+                    response.TotalProtein = nutritionTotals.TotalProtein;
+                    response.TotalCarbs = nutritionTotals.TotalCarbohydrates;
+                    response.TotalFat = nutritionTotals.TotalFat;
                 }
+
+                response.IsSuccess = true;
             }
             catch (Exception ex)
             {

@@ -6,7 +6,7 @@ using NutritionAmbition.Backend.API.Models;
 
 namespace NutritionAmbition.Backend.API.Repositories
 {
-    public class FoodEntryRepository
+    public class FoodEntryRepository : IFoodEntryRepository
     {
         private readonly IMongoCollection<FoodEntry> _foodEntries;
 
@@ -42,6 +42,14 @@ namespace NutritionAmbition.Backend.API.Repositories
             return await _foodEntries.Find(filter)
                 .SortByDescending(e => e.LoggedDateUtc)
                 .ToListAsync();
+        }
+
+        public async Task<List<FoodEntry>> GetFoodEntriesByAccountAndDateAsync(string accountId, DateTime date)
+        {
+            var filter = Builders<FoodEntry>.Filter.Eq(f => f.AccountId, accountId) &
+                          Builders<FoodEntry>.Filter.Gte(f => f.LoggedDateUtc, date) &
+                          Builders<FoodEntry>.Filter.Lt(f => f.LoggedDateUtc, date.AddDays(1));
+            return await _foodEntries.Find(filter).ToListAsync();
         }
 
         public async Task<List<FoodEntry>> GetByDateRangeAsync(string accountId, DateTime startDate, DateTime endDate, MealType? mealType = null)
