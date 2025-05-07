@@ -40,7 +40,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             }
 
             // Get account using the extension method which handles both auth types
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
                 return Unauthorized();
@@ -63,7 +63,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             }
 
             // Get account using the extension method which handles both auth types
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
                 return Unauthorized();
@@ -90,7 +90,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             }
 
             // Get account using the extension method which handles both auth types
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
                 return Unauthorized();
@@ -105,6 +105,45 @@ namespace NutritionAmbition.Backend.API.Controllers
             }
 
             return Ok(nutritionData);
+        }
+
+        [HttpGet("GetDailySummary")]
+        public async Task<ActionResult<NutritionSummaryResponse>> GetDailySummary([FromQuery] DateTime date)
+        {
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+            if (account == null)
+            {
+                return Unauthorized();
+            }
+
+            var response = await _nutritionService.GetDailySummaryAsync(account.Id, date);
+            return Ok(response);
+        }
+
+        [HttpGet("GetWeeklySummary")]
+        public async Task<ActionResult<NutritionSummaryResponse>> GetWeeklySummary([FromQuery] DateTime startDate)
+        {
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+            if (account == null)
+            {
+                return Unauthorized();
+            }
+
+            var response = await _nutritionService.GetWeeklySummaryAsync(account.Id, startDate);
+            return Ok(response);
+        }
+
+        [HttpGet("GetMonthlySummary")]
+        public async Task<ActionResult<NutritionSummaryResponse>> GetMonthlySummary([FromQuery] DateTime startDate)
+        {
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+            if (account == null)
+            {
+                return Unauthorized();
+            }
+
+            var response = await _nutritionService.GetMonthlySummaryAsync(account.Id, startDate);
+            return Ok(response);
         }
     }
 

@@ -5,5 +5,6 @@ namespace NutritionAmbition.Backend.API.DataContracts
     public class LogChatMessageResponse : Response
     {
         public ChatMessage Message { get; set; }
+        public string AnonymousAccountId { get; set; }
     }
 } 

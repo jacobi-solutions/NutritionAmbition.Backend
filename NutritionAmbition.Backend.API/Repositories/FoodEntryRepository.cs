@@ -2,22 +2,26 @@ using MongoDB.Driver;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Options;
 using NutritionAmbition.Backend.API.Models;
+using NutritionAmbition.Backend.API.Settings;
 
 namespace NutritionAmbition.Backend.API.Repositories
 {
-    public class FoodEntryRepository : IFoodEntryRepository
+    public class FoodEntryRepository
     {
-        private readonly IMongoCollection<FoodEntry> _foodEntries;
+        private readonly IMongoCollection<FoodEntry> _collection;
+        private readonly MongoDBSettings _mongoDBSettings;
 
-        public FoodEntryRepository(IMongoDatabase database)
+        public FoodEntryRepository(IMongoDatabase database, MongoDBSettings mongoDbSettings)
         {
-            _foodEntries = database.GetCollection<FoodEntry>("FoodEntries");
+            _mongoDBSettings = mongoDbSettings;
+            _collection = database.GetCollection<FoodEntry>(mongoDbSettings.FoodEntriesCollectionName);
         }
 
         public async Task<FoodEntry?> GetByIdAsync(string id)
         {
-            return await _foodEntries.Find(entry => entry.Id == id).FirstOrDefaultAsync();
+            return await _collection.Find(entry => entry.Id == id).FirstOrDefaultAsync();
         }
 
         public async Task<List<FoodEntry>> GetByAccountIdAsync(string accountId, DateTime? date = null, MealType? mealType = null)
@@ -39,7 +43,7 @@ namespace NutritionAmbition.Backend.API.Repositories
                 filter &= Builders<FoodEntry>.Filter.Eq(entry => entry.Meal, mealType.Value);
             }
             
-            return await _foodEntries.Find(filter)
+            return await _collection.Find(filter)
                 .SortByDescending(e => e.LoggedDateUtc)
                 .ToListAsync();
         }
@@ -49,7 +53,7 @@ namespace NutritionAmbition.Backend.API.Repositories
             var filter = Builders<FoodEntry>.Filter.Eq(f => f.AccountId, accountId) &
                           Builders<FoodEntry>.Filter.Gte(f => f.LoggedDateUtc, date) &
                           Builders<FoodEntry>.Filter.Lt(f => f.LoggedDateUtc, date.AddDays(1));
-            return await _foodEntries.Find(filter).ToListAsync();
+            return await _collection.Find(filter).ToListAsync();
         }
 
         public async Task<List<FoodEntry>> GetByDateRangeAsync(string accountId, DateTime startDate, DateTime endDate, MealType? mealType = null)
@@ -68,24 +72,33 @@ namespace NutritionAmbition.Backend.API.Repositories
                 filter &= Builders<FoodEntry>.Filter.Eq(entry => entry.Meal, mealType.Value);
             }
             
-            return await _foodEntries.Find(filter)
+            return await _collection.Find(filter)
                 .SortByDescending(e => e.LoggedDateUtc)
                 .ToListAsync();
         }
 
-        public async Task AddAsync(FoodEntry entry)
+        public async Task<string> AddAsync(FoodEntry entry)
         {
-            await _foodEntries.InsertOneAsync(entry);
+            await _collection.InsertOneAsync(entry);
+            return entry.Id;
         }
 
         public async Task UpdateAsync(FoodEntry entry)
         {
-            await _foodEntries.ReplaceOneAsync(e => e.Id == entry.Id, entry);
+            await _collection.ReplaceOneAsync(e => e.Id == entry.Id, entry);
         }
 
         public async Task DeleteAsync(string id)
         {
-            await _foodEntries.DeleteOneAsync(entry => entry.Id == id);
+            await _collection.DeleteOneAsync(entry => entry.Id == id);
+        }
+
+        public async Task<long> UpdateAccountReferencesAsync(string fromAccountId, string toAccountId)
+        {
+            var filter = Builders<FoodEntry>.Filter.Eq(x => x.AccountId, fromAccountId);
+            var update = Builders<FoodEntry>.Update.Set(x => x.AccountId, toAccountId);
+            var result = await _collection.UpdateManyAsync(filter, update);
+            return result.ModifiedCount;
         }
     }
 }

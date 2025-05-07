@@ -7,14 +7,18 @@ using NutritionAmbition.Backend.API.Repositories;
 
 namespace NutritionAmbition.Backend.API.Services
 {
+    public interface IDailySummaryService
+    {
+        Task<DailySummaryResponse> GetDailySummaryAsync(string accountId);
+    }
     public class DailySummaryService : IDailySummaryService
     {
-        private readonly IFoodEntryRepository _repo;
+        private readonly FoodEntryRepository _repo;
         private readonly INutritionCalculationService _nutritionCalculationService;
         private readonly ILogger<DailySummaryService> _logger;
 
         public DailySummaryService(
-            IFoodEntryRepository repo,
+            FoodEntryRepository repo,
             INutritionCalculationService nutritionCalculationService,
             ILogger<DailySummaryService> logger)
         {

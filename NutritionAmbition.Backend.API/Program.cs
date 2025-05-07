@@ -68,16 +68,15 @@ builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongo
 
 // 🟢 Services
 builder.Services.AddSingleton<AccountsService>();
-builder.Services.AddSingleton<AiService>(); // Assuming this is the AI Conversation Handler
 builder.Services.AddSingleton<IFoodEntryService, FoodEntryService>();
 
 // Register the DailyGoal service and repository
 builder.Services.AddSingleton<DailyGoalRepository>();
 builder.Services.AddSingleton<IDailyGoalService, DailyGoalService>();
 
-// Register the ChatMessage service and repository
+// Register the Conversation service and repository
 builder.Services.AddSingleton<ChatMessageRepository>();
-builder.Services.AddSingleton<IChatMessageService, ChatMessageService>();
+builder.Services.AddScoped<IConversationService, ConversationService>();
 
 // Register the DailySummary service 
 builder.Services.AddSingleton<IDailySummaryService, DailySummaryService>();
@@ -95,17 +94,9 @@ builder.Services.AddSingleton<INutritionService, NutritionService>();
 builder.Services.AddHttpClient<IOpenAiService, OpenAiService>();
 builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
 
-// Register the main Nutrition Service (now using Nutritionix)
-
-
-// Commenting out potentially conflicting extension methods until verified
-// NutritionAmbition.Backend.API.AiServiceExtensions.AddAiServices(builder.Services);
-// NutritionAmbition.Backend.API.NutritionServiceExtensions.AddNutritionServices(builder.Services);
-
 // Repos
 builder.Services.AddSingleton<AccountsRepository>();
-builder.Services.AddSingleton<FoodEntryRepository>(); // Make sure this is registered before IFoodEntryRepository
-builder.Services.AddSingleton<IFoodEntryRepository, FoodEntryRepository>();
+builder.Services.AddSingleton<FoodEntryRepository>();
 
 // ✅ Initialize Firebase Admin SDK
 var firebaseProjectId = firebaseSettings.ProjectId;
@@ -148,11 +139,11 @@ builder.Services.AddCors(options =>
 // Build the app
 var app = builder.Build();
 
-// Use anonymous auth middleware before authentication
-app.UseMiddleware<AnonymousAuthMiddleware>();
+
 
 // ✅ Use Authentication & Authorization Middleware
 app.UseAuthentication();
+app.UseMiddleware<AnonymousAuthMiddleware>();
 app.UseAuthorization();
 
 // 🟢 Use Swagger in Dev Environment

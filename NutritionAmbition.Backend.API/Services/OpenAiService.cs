@@ -22,6 +22,7 @@ namespace NutritionAmbition.Backend.API.Services
         Task<int> SelectBestGenericFoodAsync(string userQuery, List<CommonFoodItem> commonFoods);
         Task<string> GenerateCoachResponseAsync(string foodDescription, FoodNutrition nutritionData);
         Task<List<FoodGroup>> GroupFoodItemsAsync(string originalDescription, List<FoodItem> foodItems);
+        Task<string> CreateChatCompletionAsync(string systemPrompt, string userPrompt);
     }
 
     public class OpenAiService : IOpenAiService
@@ -599,6 +600,24 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogError(ex, "Error grouping food items with OpenAI for: {OriginalDescription}", originalDescription);
                 // Fallback: return each item as its own group in case of error
                 return foodItems.Select(item => new FoodGroup { GroupName = item.Name, Items = new List<FoodItem> { item } }).ToList();
+            }
+        }
+
+        public async Task<string> CreateChatCompletionAsync(string systemPrompt, string userPrompt)
+        {
+            try
+            {
+                var messages = new List<object>
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt }
+                };
+                return await GetChatResponseAsync(messages);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating chat completion");
+                throw;
             }
         }
     }

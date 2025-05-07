@@ -7,6 +7,11 @@ using System.Linq;
 
 namespace NutritionAmbition.Backend.API.Services
 {
+    public interface INutritionixService
+    {
+        Task<NutritionixResponse?> GetNutritionDataAsync(string query);
+        Task<SearchInstantResponse> SearchInstantAsync(string query);
+    }
     public class NutritionixService : INutritionixService
     {
         private readonly NutritionixClient _nutritionixClient;

@@ -13,6 +13,9 @@ namespace NutritionAmbition.Backend.API.Services
         Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription);
         Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription);
         Task<NutritionApiResponse> GetSmartNutritionDataAsync(string accountId, string foodDescription);
+        Task<NutritionSummaryResponse> GetDailySummaryAsync(string accountId, DateTime date);
+        Task<NutritionSummaryResponse> GetWeeklySummaryAsync(string accountId, DateTime startDate);
+        Task<NutritionSummaryResponse> GetMonthlySummaryAsync(string accountId, DateTime startDate);
     }
 
     public class NutritionService : INutritionService
@@ -758,6 +761,24 @@ namespace NutritionAmbition.Backend.API.Services
             
             // Join everything with spaces
             return string.Join(" ", queryComponents);
+        }
+
+        public async Task<NutritionSummaryResponse> GetDailySummaryAsync(string accountId, DateTime date)
+        {
+            // TODO: replace with real logic
+            throw new NotImplementedException();
+        }
+
+        public async Task<NutritionSummaryResponse> GetWeeklySummaryAsync(string accountId, DateTime startDate)
+        {
+            // TODO: replace with real logic
+            throw new NotImplementedException();
+        }
+
+        public async Task<NutritionSummaryResponse> GetMonthlySummaryAsync(string accountId, DateTime startDate)
+        {
+            // TODO: replace with real logic
+            throw new NotImplementedException();
         }
     }
 }

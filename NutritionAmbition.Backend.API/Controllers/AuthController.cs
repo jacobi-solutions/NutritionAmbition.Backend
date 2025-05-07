@@ -18,7 +18,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             _logger = logger;
         }
 
-        [HttpPost("register")]
+        [HttpPost("RegisterUser")]
         public async Task<ActionResult<Response>> RegisterUser([FromBody] AccountRequest request)
         {
             _logger.LogInformation("RegisterUser endpoint called.");

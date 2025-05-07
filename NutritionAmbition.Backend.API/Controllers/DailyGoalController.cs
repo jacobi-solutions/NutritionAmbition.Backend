@@ -27,7 +27,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             _logger = logger;
         }
 
-        [HttpPost("get")]
+        [HttpPost("GetDailyGoal")]
         public async Task<ActionResult<GetDailyGoalResponse>> GetDailyGoal([FromBody] GetDailyGoalRequest request)
         {
             if (!ModelState.IsValid)
@@ -47,7 +47,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             return Ok(response);
         }
 
-        [HttpPost("set")]
+        [HttpPost("SetDailyGoal")]
         public async Task<ActionResult<SetDailyGoalResponse>> SetDailyGoal([FromBody] SetDailyGoalRequest request)
         {
             if (!ModelState.IsValid)

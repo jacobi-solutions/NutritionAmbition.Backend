@@ -36,7 +36,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
                 return Unauthorized();
@@ -54,7 +54,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
                 return Unauthorized();
@@ -72,7 +72,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
                 return Unauthorized();
@@ -95,7 +95,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService, _logger);
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
                 return Unauthorized();
