@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using NutritionAmbition.Backend.API.Settings;
 using System.Collections.Generic;
 using NutritionAmbition.Backend.API.DataContracts;
+using NutritionAmbition.Backend.API.Constants;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -16,14 +17,19 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly HttpClient _httpClient;
         private readonly NutritionixSettings _settings;
 
+        /// <summary>
+        /// Provides access to the Nutritionix settings
+        /// </summary>
+        public NutritionixSettings Settings => _settings;
+
         public NutritionixClient(HttpClient httpClient, NutritionixSettings settings)
         {
             _httpClient = httpClient;
             _settings = settings;
 
             _httpClient.BaseAddress = new Uri(_settings.ApiEndpoint);
-            _httpClient.DefaultRequestHeaders.Add("x-app-id", _settings.ApplicationId);
-            _httpClient.DefaultRequestHeaders.Add("x-app-key", _settings.ApiKey);
+            _httpClient.DefaultRequestHeaders.Add(NutritionixConstants.AppIdHeader, _settings.ApplicationId);
+            _httpClient.DefaultRequestHeaders.Add(NutritionixConstants.AppKeyHeader, _settings.ApiKey);
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }
 
@@ -57,13 +63,13 @@ namespace NutritionAmbition.Backend.API.Services
         {
             var queryParams = new Dictionary<string, string>
             {
-                { "query", query },
-                { "branded", "true" },
-                { "common", "true" },
-                { "detailed", "true" }
+                { NutritionixConstants.QueryParam, query },
+                { NutritionixConstants.BrandedParam, _settings.BrandedDefault },
+                { NutritionixConstants.CommonParam, _settings.CommonDefault },
+                { NutritionixConstants.DetailedParam, _settings.DetailedDefault }
             };
 
-            var response = await GetAsync("search/instant", queryParams);
+            var response = await GetAsync(_settings.SearchInstantPath, queryParams);
             
             if (!response.IsSuccessStatusCode)
             {
@@ -82,10 +88,10 @@ namespace NutritionAmbition.Backend.API.Services
                 // Use the item ID to get detailed nutrition information
                 var queryParams = new Dictionary<string, string>
                 {
-                    { "nix_item_id", nixItemId }
+                    { NutritionixConstants.NixItemIdParam, nixItemId }
                 };
 
-                var response = await GetAsync("search/item", queryParams);
+                var response = await GetAsync(_settings.SearchItemPath, queryParams);
                 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -121,7 +127,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 // Use natural/nutrients endpoint with the tag_name as query
                 var data = new { query = tagName };
-                var response = await PostAsync("natural/nutrients", data);
+                var response = await PostAsync(_settings.NaturalNutrientsPath, data);
                 
                 if (!response.IsSuccessStatusCode)
                 {

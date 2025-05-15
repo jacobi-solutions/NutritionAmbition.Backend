@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using NutritionAmbition.Backend.API.Constants;
 using NutritionAmbition.Backend.API.Models;
 
 namespace NutritionAmbition.Backend.API.DataContracts

@@ -7,11 +7,6 @@ namespace NutritionAmbition.Backend.API.Models
   {
     public string Name { get; set; }
     public string Email { get; set; }
-    public bool EmailVerified { get; set; }
-
-
-    [JsonIgnore]
-    public bool IsAdmin { get; set; }
     
     [JsonIgnore]
     public string GoogleAuthUserId { get; set; }

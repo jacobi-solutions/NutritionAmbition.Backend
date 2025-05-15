@@ -18,20 +18,6 @@ namespace NutritionAmbition.Backend.API.Services
             _accountsRepo = accountsRepo;
         }
 
-        public async Task<List<Account>> GetAllAccountsAsync()
-        {
-            var response = new Response();
-            try
-            {
-                return await _accountsRepo.GetAllAsync();
-            }
-            catch (Exception ex)
-            {
-                response.AddError(ex.Message, "EXCEPTION");
-                return new List<Account>();
-            }
-        }
-
         public async Task<Account?> GetAccountByIdAsync(string id)
         {
             var response = new Response();
@@ -59,7 +45,6 @@ namespace NutritionAmbition.Backend.API.Services
                 return null;
             }
         }
-
         public async Task<bool> UpdateAccountAsync(string id, Account updatedAccount)
         {
             var response = new Response();
@@ -73,7 +58,6 @@ namespace NutritionAmbition.Backend.API.Services
                 return false;
             }
         }
-
         public async Task<bool> DeleteAccountAsync(string id)
         {
             var response = new Response();
@@ -142,8 +126,6 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     Name = anonymousName,
                     Email = $"{anonymousName}@anonymous.user",
-                    EmailVerified = false,
-                    IsAdmin = false,
                     GoogleAuthUserId = null, // No Google auth for anonymous users
                     IsAnonymousUser = true
                 };
@@ -157,43 +139,5 @@ namespace NutritionAmbition.Backend.API.Services
                 throw;
             }
         }
-
-        // public async Task<(bool IsSuccess, int StatusCode, string Message, object Data)> VerifyGoogleTokenAsync(string idToken)
-        // {
-        //     try
-        //     {
-        //         var payload = await GoogleJsonWebSignature.ValidateAsync(
-        //             idToken,
-        //             new GoogleJsonWebSignature.ValidationSettings
-        //             {
-        //                 Audience = new[] { "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com" }
-        //             }
-        //         );
-
-        //         var userId = payload.Subject;
-        //         var email = payload.Email;
-        //         var name = payload.Name;
-
-        //         var existingAccount = await GetAccountByIdAsync(userId);
-        //         if (existingAccount == null)
-        //         {
-        //             var newAccount = new Account
-        //             {
-        //                 Id = userId,
-        //                 Name = name,
-        //                 Email = email,
-        //                 GoogleAuthUserId = userId
-        //             };
-
-        //             await _accountsRepo.CreateAsync(newAccount);
-        //         }
-
-        //         return (true, 200, null, new { userId, email, name });
-        //     }
-        //     catch (InvalidJwtException ex)
-        //     {
-        //         return (false, 401, $"Invalid Google ID token: {ex.Message}", null);
-        //     }
-        // }
     }
 }

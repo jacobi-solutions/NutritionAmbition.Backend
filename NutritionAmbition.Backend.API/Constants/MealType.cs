@@ -1,5 +1,5 @@
 using System.Text.Json.Serialization;
-namespace NutritionAmbition.Backend.API.Models
+namespace NutritionAmbition.Backend.API.Constants
 {
     // Define MealType enum
     [JsonConverter(typeof(JsonStringEnumConverter))]

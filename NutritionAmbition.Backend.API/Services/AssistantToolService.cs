@@ -5,6 +5,7 @@ using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.DataContracts.Profile;
 using NutritionAmbition.Backend.API.Models;
 using System.Linq;
+using NutritionAmbition.Backend.API.Constants;
 
 namespace NutritionAmbition.Backend.API.Services
 {

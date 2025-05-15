@@ -21,7 +21,6 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IOpenAiService
     {
         Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
-        Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults);
         Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods);
         Task<int> SelectBestGenericFoodAsync(string userQuery, List<CommonFoodItem> commonFoods);
         Task<string> GenerateCoachResponseAsync(string foodDescription, FoodNutrition nutritionData);
@@ -30,7 +29,7 @@ namespace NutritionAmbition.Backend.API.Services
         Task<string> CreateNewThreadAsync();
         Task<string> AppendMessageToThreadAsync(string threadId, string message, string role = "user");
         Task<string> StartRunAsync(string threadId, string assistantId);
-        Task<RunResponse> PollRunStatusAsync(string threadId, string runId, int maxAttempts = 20, int delayMs = 1000);
+        Task<RunResponse> PollRunStatusAsync(string threadId, string runId, int maxAttempts = 0, int delayMs = 0);
         Task<RunResponse> SubmitToolOutputsAsync(string threadId, string runId, List<Models.ToolOutput> toolOutputs);
         Task<List<Models.ThreadMessage>> GetRunMessagesAsync(string threadId, string runId);
     }
@@ -97,18 +96,21 @@ namespace NutritionAmbition.Backend.API.Services
         /// <returns>The content of the AI's response</returns>
         private async Task<string> GetChatResponseAsync(
             List<object> messages, 
-            float temperature = 0.7f, 
+            float? temperature = null,
             int? maxTokens = null,
             string responseFormat = null)
         {
             try
             {
+                // Use configured temperature or default from settings
+                float tempValue = temperature ?? _openAiSettings.DefaultTemperature;
+                
                 // Use the model configured in settings rather than hardcoding
                 var requestBody = new
                 {
                     model = _openAiSettings.Model,
                     messages,
-                    temperature,
+                    temperature = tempValue,
                     max_tokens = maxTokens,
                     response_format = responseFormat != null ? new { type = responseFormat } : null
                 };
@@ -158,18 +160,22 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = "system",
+                        role = OpenAiModelNames.SystemRole,
                         content = "You are a nutrition assistant. Break down the user's food description into individual food items. For each item, extract:\n\nname (string)\n\nquantity (number)\n\nunit (string)\n\nbrand (string, optional — leave empty if no brand mentioned)\n\nisBranded (boolean)\n\nRespond ONLY with a JSON object structured like this:\n\n{\n'foods': [\n{ 'name': 'coffee', 'quantity': 16, 'unit': 'oz', 'brand': '', 'isBranded': false },\n{ 'name': 'cheese pizza', 'quantity': 1, 'unit': 'large slice', 'brand': 'mellow mushroom', 'isBranded': true }\n]\n}\n\nNo extra text, no explanations."
                     },
                     new
                     {
-                        role = "user",
+                        role = OpenAiModelNames.UserRole,
                         content = foodDescription
                     }
                 };
 
                 // Get the chat response from OpenAI
-                var aiContent = await GetChatResponseAsync(messages, 0.1f, 800, "json_object");
+                var aiContent = await GetChatResponseAsync(
+                    messages, 
+                    _openAiSettings.FoodParsingTemperature, 
+                    _openAiSettings.DefaultMaxTokens, 
+                    OpenAiModelNames.JsonObjectFormat);
                 
                 // Log the raw response
                 _logger.LogDebug("Raw OpenAI response: {RawResponse}", aiContent);
@@ -206,101 +212,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        /// <summary>
-        /// Selects the best matching food item from a list of search results
-        /// </summary>
-        /// <param name="foodDescription">The original food description</param>
-        /// <param name="searchResults">List of potential food matches</param>
-        /// <returns>The FdcId of the best matching food item</returns>
-        public async Task<int> SelectBestFoodMatchAsync(string foodDescription, List<FoodSearchResult> searchResults)
-        {
-            try
-            {
-                _logger.LogInformation("Selecting best food match with OpenAI for: {FoodDescription}", foodDescription);
-
-                if (searchResults == null || searchResults.Count == 0)
-                {
-                    throw new ArgumentException("No search results provided");
-                }
-
-                // If only one result, return it
-                if (searchResults.Count == 1)
-                {
-                    return searchResults[0].FdcId;
-                }
-
-                // Format the search results for the prompt
-                var formattedResults = new StringBuilder();
-                for (int i = 0; i < searchResults.Count; i++)
-                {
-                    var result = searchResults[i];
-                    formattedResults.AppendLine($"Option {i + 1}:");
-                    formattedResults.AppendLine($"- Description: {result.Description}");
-                    
-                    if (!string.IsNullOrEmpty(result.BrandName))
-                    {
-                        formattedResults.AppendLine($"- Brand: {result.BrandName}");
-                    }
-                    
-                    if (!string.IsNullOrEmpty(result.FoodCategory))
-                    {
-                        formattedResults.AppendLine($"- Category: {result.FoodCategory}");
-                    }
-                    
-                    if (!string.IsNullOrEmpty(result.Ingredients))
-                    {
-                        formattedResults.AppendLine($"- Ingredients: {result.Ingredients}");
-                    }
-                    
-                    formattedResults.AppendLine();
-                }
-
-                // Create the prompt for OpenAI
-                var messages = new List<object>
-                {
-                    new
-                    {
-                        role = "system",
-                        content = @"You are a nutrition assistant that helps select the most appropriate food item from a list of options based on a user's description. 
-                        Analyze the options and select the one that best matches the user's food description.
-                        Consider factors like food name, brand, category, and ingredients.
-                        Respond with a JSON object containing only the option number (1-based index) of your selection.
-                        Format:
-                        {
-                          ""selectedOption"": 1
-                        }"
-                    },
-                    new
-                    {
-                        role = "user",
-                        content = $"User's food description: {foodDescription}\n\nAvailable options:\n{formattedResults}"
-                    }
-                };
-
-                var aiContent = await GetChatResponseAsync(messages, 0.2f, null, "json_object");
-                
-                var selectionResponse = JsonSerializer.Deserialize<FoodSelectionResponse>(aiContent, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (selectionResponse == null || selectionResponse.SelectedOption < 1 || selectionResponse.SelectedOption > searchResults.Count)
-                {
-                    _logger.LogWarning("Invalid selection from OpenAI, defaulting to first option");
-                    return searchResults[0].FdcId;
-                }
-
-                // Convert from 1-based to 0-based index
-                int selectedIndex = selectionResponse.SelectedOption - 1;
-                return searchResults[selectedIndex].FdcId;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error selecting best food match with OpenAI: {FoodDescription}", foodDescription);
-                // Default to first result in case of error
-                return searchResults.Any() ? searchResults[0].FdcId : 0; // Return 0 if searchResults is empty
-            }
-        }
+       
 
         /// <summary>
         /// Selects the best matching branded food item from a list of branded foods
@@ -335,18 +247,21 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = "system",
+                        role = OpenAiModelNames.SystemRole,
                         content = "You are a nutrition assistant helping users match their food descriptions to the best branded food from a list. The user's report includes the food name, quantity, and unit. Choose the food item that most closely matches based on food name, brand name, and portion size. Only respond with the number of the best matching option. If none are a good match, respond with -1."
                     },
                     new
                     {
-                        role = "user",
+                        role = OpenAiModelNames.UserRole,
                         content = $"The user reported eating: {quantity} {unit} {userQuery}\n\nAvailable branded food options:\n{formattedOptions}"
                     }
                 };
 
                 // Get response from OpenAI
-                var aiResponse = await GetChatResponseAsync(messages, 0.2f, 10);
+                var aiResponse = await GetChatResponseAsync(
+                    messages, 
+                    _openAiSettings.LowTemperature, 
+                    10);
                 
                 // Log the raw response
                 _logger.LogDebug("Raw OpenAI response for branded food selection: {RawResponse}", aiResponse);
@@ -422,18 +337,22 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = "system",
+                        role = OpenAiModelNames.SystemRole,
                         content = "You are a nutrition assistant. Given a user's food description and a list of options from a nutrition database, pick the best match."
                     },
                     new
                     {
-                        role = "user",
+                        role = OpenAiModelNames.UserRole,
                         content = $"Find the best match for this food description: {userQuery}\n\nOptions:\n{formattedOptions}\n\nRespond with ONLY a JSON object like: {{ \"selectedOption\": 1 }}"
                     }
                 };
 
                 // Get response from OpenAI
-                var aiResponse = await GetChatResponseAsync(messages, 0.2f, null, "json_object");
+                var aiResponse = await GetChatResponseAsync(
+                    messages, 
+                    _openAiSettings.LowTemperature, 
+                    null, 
+                    OpenAiModelNames.JsonObjectFormat);
                 
                 // Log the raw response
                 _logger.LogDebug("Raw OpenAI response for generic food selection: {RawResponse}", aiResponse);
@@ -491,11 +410,15 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var messages = new List<object>
                 {
-                    new { role = "system", content = "You are a friendly and encouraging nutrition coach." },
-                    new { role = "user", content = prompt.ToString() }
+                    new { role = OpenAiModelNames.SystemRole, content = "You are a friendly and encouraging nutrition coach." },
+                    new { role = OpenAiModelNames.UserRole, content = prompt.ToString() }
                 };
 
-                var coachResponse = await GetChatResponseAsync(messages, 0.7f, 60);
+                var coachResponse = await GetChatResponseAsync(
+                    messages, 
+                    _openAiSettings.DefaultTemperature, 
+                    _openAiSettings.CoachResponseMaxTokens);
+                    
                 _logger.LogInformation("Generated AI coach response: {CoachResponse}", coachResponse);
                 return coachResponse.Trim();
             }
@@ -545,7 +468,7 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = "system",
+                        role = OpenAiModelNames.SystemRole,
                         content = @"You are a nutrition assistant. Given a user's original food description and a list of parsed food items (from Nutritionix), group these items into logical meal components or individual significant items. 
                         Assign a concise, descriptive name to each group (e.g., 'Coffee', 'Protein Shake', 'Chicken', 'Banana').
                         Ensure every parsed item is assigned to exactly one group.
@@ -569,12 +492,17 @@ namespace NutritionAmbition.Backend.API.Services
                     },
                     new
                     {
-                        role = "user",
+                        role = OpenAiModelNames.UserRole,
                         content = $"Original Description: {originalDescription}\n\nParsed Items:\n{formattedItems}"
                     }
                 };
 
-                var aiContent = await GetChatResponseAsync(messages, 0.3f, null, "json_object");
+                var aiContent = await GetChatResponseAsync(
+                    messages, 
+                    _openAiSettings.GroupingTemperature, 
+                    null, 
+                    OpenAiModelNames.JsonObjectFormat);
+                    
                 _logger.LogDebug("OpenAI grouping response content: {AIContent}", aiContent);
 
                 var groupingResponse = JsonSerializer.Deserialize<FoodGroupingResponse>(aiContent, new JsonSerializerOptions
@@ -650,8 +578,8 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 var messages = new List<object>
                 {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userPrompt }
+                    new { role = OpenAiModelNames.SystemRole, content = systemPrompt },
+                    new { role = OpenAiModelNames.UserRole, content = userPrompt }
                 };
                 return await GetChatResponseAsync(messages);
             }
@@ -751,17 +679,22 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        public async Task<RunResponse> PollRunStatusAsync(string threadId, string runId, int maxAttempts = 20, int delayMs = 1000)
+        public async Task<RunResponse> PollRunStatusAsync(string threadId, string runId, int maxAttempts = 0, int delayMs = 0)
         {
             try
             {
-                _logger.LogInformation("Polling run status for run {RunId} on thread {ThreadId}", runId, threadId);
+                // Use parameter values if provided, otherwise use settings
+                int attemptsToUse = maxAttempts > 0 ? maxAttempts : _openAiSettings.MaxPollAttempts;
+                int delayToUse = delayMs > 0 ? delayMs : _openAiSettings.PollDelayMs;
+                
+                _logger.LogInformation("Polling run status for run {RunId} on thread {ThreadId} (maxAttempts: {MaxAttempts}, delay: {DelayMs}ms)", 
+                    runId, threadId, attemptsToUse, delayToUse);
 
                 var assistantClient = _openAiClient.GetAssistantClient();
                 RunResponse runResponse = null;
                 int attempts = 0;
 
-                while (attempts < maxAttempts)
+                while (attempts < attemptsToUse)
                 {
                     attempts++;
 
@@ -823,7 +756,7 @@ namespace NutritionAmbition.Backend.API.Services
                         return runResponse;
                     }
 
-                    await Task.Delay(delayMs);
+                    await Task.Delay(delayToUse);
                 }
 
                 _logger.LogWarning("Reached max attempts polling run {RunId}", runId);

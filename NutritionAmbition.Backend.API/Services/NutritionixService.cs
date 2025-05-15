@@ -35,7 +35,7 @@ namespace NutritionAmbition.Backend.API.Services
                 query = query.Trim();
                 
                 var requestBody = new { query = query };
-                var response = await _nutritionixClient.PostAsync("natural/nutrients", requestBody);
+                var response = await _nutritionixClient.PostAsync(_nutritionixClient.Settings.NaturalNutrientsPath, requestBody);
 
                 if (!response.IsSuccessStatusCode)
                 {
