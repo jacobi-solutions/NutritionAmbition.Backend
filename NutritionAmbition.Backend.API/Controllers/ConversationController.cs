@@ -143,12 +143,12 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = HttpContext.Items["Account"] as Account;
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
-                account = await _accountsService.CreateAnonymousAccountAsync();
-                HttpContext.Items["Account"] = account;
+                return Unauthorized("User account not found");
             }
+
 
             var response = await _conversationService.LogMessageAsync(account.Id, request);
             

@@ -165,7 +165,7 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseMiddleware<AnonymousAuthMiddleware>();
 app.UseAuthorization();
-
+app.UseMiddleware<AttachAccountIdToResponseMiddleware>();
 // 🟢 Use Swagger in Dev Environment
 if (builder.Environment.IsDevelopment())
 {
