@@ -23,3 +23,5 @@ steps:
       - '--allow-unauthenticated'
       - '--port=8080'
       - '--timeout=300s'  # Extended timeout
+      - '--set-secrets=OpenAiSettings__ApiKey=OpenAiApiKey__ApiKey:latest'
+      - '--set-secrets=OpenAiSettings__AssistantId=OpenAiApiKey__AssistantId:latest'

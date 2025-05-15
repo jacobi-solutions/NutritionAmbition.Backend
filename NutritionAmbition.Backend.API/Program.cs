@@ -167,15 +167,15 @@ app.UseMiddleware<AnonymousAuthMiddleware>();
 app.UseAuthorization();
 
 // 🟢 Use Swagger in Dev Environment
-// if (builder.Environment.IsDevelopment())
-// {
+if (builder.Environment.IsDevelopment())
+{
     app.UseSwagger();
     app.UseSwaggerUI();
-// }
-// else
-// {
+}
+else
+{
     app.UseHttpsRedirection();
-// }
+}
 
 app.UseCors("AllowLocalhost");
 app.MapControllers();
