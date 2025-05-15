@@ -16,10 +16,10 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly HttpClient _httpClient;
         private readonly NutritionixSettings _settings;
 
-        public NutritionixClient(HttpClient httpClient, IOptions<NutritionixSettings> settings)
+        public NutritionixClient(HttpClient httpClient, NutritionixSettings settings)
         {
             _httpClient = httpClient;
-            _settings = settings.Value;
+            _settings = settings;
 
             _httpClient.BaseAddress = new Uri(_settings.ApiEndpoint);
             _httpClient.DefaultRequestHeaders.Add("x-app-id", _settings.ApplicationId);

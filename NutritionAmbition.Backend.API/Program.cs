@@ -104,7 +104,6 @@ builder.Services.AddSingleton<INutritionService, NutritionService>();
 
 // Register OpenAI SDK Client
 builder.Services.AddSingleton(sp => {
-    var openAiSettings = sp.GetRequiredService<IOptions<OpenAiSettings>>().Value;
     return new OpenAIClient(openAiSettings.ApiKey);
 });
 
