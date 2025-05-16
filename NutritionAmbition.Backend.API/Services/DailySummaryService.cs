@@ -111,12 +111,21 @@ namespace NutritionAmbition.Backend.API.Services
                     Protein = nutritionTotals.TotalProtein,
                     Carbohydrates = nutritionTotals.TotalCarbohydrates,
                     Fat = nutritionTotals.TotalFat,
+                    // Keep these properties populated for backwards compatibility,
+                    // but they are now considered micronutrients in the UI
                     Fiber = entries.Sum(e => e.GroupedItems.Sum(g => g.Items.Sum(i => i.Fiber))),
                     Sugar = entries.Sum(e => e.GroupedItems.Sum(g => g.Items.Sum(i => i.Sugar))),
                     SaturatedFat = nutritionTotals.TotalSaturatedFat
                 };
                 
+                // Add all micronutrients from the calculation
                 response.Micronutrients = nutritionTotals.TotalMicronutrients;
+                
+                // Also add the nutrients that were previously treated as macronutrients but are now micronutrients
+                // Note: We're keeping them in the Macronutrients object for backwards compatibility
+                response.Micronutrients["Fiber"] = response.Macronutrients.Fiber;
+                response.Micronutrients["Sugar"] = response.Macronutrients.Sugar;
+                response.Micronutrients["Saturated Fat"] = response.Macronutrients.SaturatedFat;
                 
                 _logger.LogInformation("Successfully generated daily nutrition summary for account {AccountId} on {Date} - {Calories} calories", 
                     accountId, dateUtc.Date, response.TotalCalories);
@@ -179,12 +188,21 @@ namespace NutritionAmbition.Backend.API.Services
                     Protein = nutritionTotals.TotalProtein,
                     Carbohydrates = nutritionTotals.TotalCarbohydrates,
                     Fat = nutritionTotals.TotalFat,
+                    // Keep these properties populated for backwards compatibility,
+                    // but they are now considered micronutrients in the UI
                     Fiber = entries.Sum(e => e.GroupedItems.Sum(g => g.Items.Sum(i => i.Fiber))),
                     Sugar = entries.Sum(e => e.GroupedItems.Sum(g => g.Items.Sum(i => i.Sugar))),
                     SaturatedFat = nutritionTotals.TotalSaturatedFat
                 };
                 
+                // Add all micronutrients from the calculation
                 response.Micronutrients = nutritionTotals.TotalMicronutrients;
+                
+                // Also add the nutrients that were previously treated as macronutrients but are now micronutrients
+                // Note: We're keeping them in the Macronutrients object for backwards compatibility
+                response.Micronutrients["Fiber"] = response.Macronutrients.Fiber;
+                response.Micronutrients["Sugar"] = response.Macronutrients.Sugar;
+                response.Micronutrients["Saturated Fat"] = response.Macronutrients.SaturatedFat;
                 
                 _logger.LogInformation("Successfully generated weekly nutrition summary for account {AccountId} - {Calories} calories", 
                     accountId, response.TotalCalories);
@@ -248,12 +266,21 @@ namespace NutritionAmbition.Backend.API.Services
                     Protein = nutritionTotals.TotalProtein,
                     Carbohydrates = nutritionTotals.TotalCarbohydrates,
                     Fat = nutritionTotals.TotalFat,
+                    // Keep these properties populated for backwards compatibility,
+                    // but they are now considered micronutrients in the UI
                     Fiber = entries.Sum(e => e.GroupedItems.Sum(g => g.Items.Sum(i => i.Fiber))),
                     Sugar = entries.Sum(e => e.GroupedItems.Sum(g => g.Items.Sum(i => i.Sugar))),
                     SaturatedFat = nutritionTotals.TotalSaturatedFat
                 };
                 
+                // Add all micronutrients from the calculation
                 response.Micronutrients = nutritionTotals.TotalMicronutrients;
+                
+                // Also add the nutrients that were previously treated as macronutrients but are now micronutrients
+                // Note: We're keeping them in the Macronutrients object for backwards compatibility
+                response.Micronutrients["Fiber"] = response.Macronutrients.Fiber;
+                response.Micronutrients["Sugar"] = response.Macronutrients.Sugar;
+                response.Micronutrients["Saturated Fat"] = response.Macronutrients.SaturatedFat;
                 
                 _logger.LogInformation("Successfully generated monthly nutrition summary for account {AccountId} - {Calories} calories", 
                     accountId, response.TotalCalories);

@@ -100,16 +100,19 @@ namespace NutritionAmbition.Backend.API.Services
         {
             var nutrientBreakdowns = new List<NutrientBreakdown>();
 
-            // Process macronutrients first
+            // Process macronutrients first (only protein, carbohydrates, and fat)
             AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Protein", item => item.Protein);
             AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Carbohydrates", item => item.Carbohydrates);
             AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Fat", item => item.Fat);
-            AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Fiber", item => item.Fiber);
-            AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Sugar", item => item.Sugar);
-            AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Saturated Fat", item => item.SaturatedFat);
             
             // Process micronutrients
             var allMicronutrients = new Dictionary<string, double>();
+            
+            // Add other nutrients that were previously treated as macronutrients
+            // but are now classified as micronutrients
+            AddMicroNutrientBreakdown(nutrientBreakdowns, foodItems, "Fiber", item => item.Fiber);
+            AddMicroNutrientBreakdown(nutrientBreakdowns, foodItems, "Sugar", item => item.Sugar);
+            AddMicroNutrientBreakdown(nutrientBreakdowns, foodItems, "Saturated Fat", item => item.SaturatedFat);
             
             // Collect all micronutrients from all food items
             foreach (var item in foodItems)
@@ -218,6 +221,54 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
+        private void AddMicroNutrientBreakdown(
+            List<NutrientBreakdown> breakdowns, 
+            List<FoodItem> foodItems, 
+            string nutrientName, 
+            Func<FoodItem, double> valueSelector)
+        {
+            var breakdown = new NutrientBreakdown
+            {
+                Name = nutrientName,
+                Unit = GetNutrientUnit(nutrientName),
+                TotalAmount = 0
+            };
+            
+            foreach (var item in foodItems)
+            {
+                double nutrientValue = valueSelector(item);
+                if (nutrientValue > 0)
+                {
+                    double totalAmount = nutrientValue * item.Quantity;
+                    breakdown.TotalAmount += totalAmount;
+                    
+                    // Log the food item's original unit
+                    _logger.LogInformation("Food: {Name}, Quantity: {Quantity}, Unit: {Unit}, Adding to nutrient: {Nutrient}", 
+                        item.Name, item.Quantity, item.Unit, nutrientName);
+                    
+                    // Ensure the food unit exists - use a default if not provided
+                    var foodUnit = !string.IsNullOrEmpty(item.Unit) ? item.Unit : "serving";
+                    
+                    breakdown.Foods.Add(new FoodContribution
+                    {
+                        Name = item.Name,
+                        BrandName = item.BrandName,
+                        Amount = totalAmount,
+                        Unit = GetNutrientUnit(nutrientName), // Keep nutrient unit for consistent measurements
+                        FoodUnit = foodUnit // Preserve the original food unit for display
+                    });
+                }
+            }
+            
+            // Only add nutrients that have contributions
+            if (breakdown.Foods.Any())
+            {
+                // Sort contributions by amount in descending order
+                breakdown.Foods = breakdown.Foods.OrderByDescending(f => f.Amount).ToList();
+                breakdowns.Add(breakdown);
+            }
+        }
+
         private List<FoodBreakdown> GenerateFoodBreakdowns(List<FoodItem> foodItems)
         {
             var foodBreakdowns = new List<FoodBreakdown>();
@@ -260,12 +311,16 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogInformation("Food group: {Name}, TotalAmount: {TotalAmount}, Unit: {Unit}",
                     group.Key, breakdown.TotalAmount, breakdown.Unit);
                 
-                // Add macronutrient contributions
+                // Add macronutrient contributions (only protein, carbohydrates, and fat)
                 AddNutrientContribution(breakdown, group, "Calories", item => item.Calories, "kcal");
                 AddNutrientContribution(breakdown, group, "Protein", item => item.Protein, "g");
                 AddNutrientContribution(breakdown, group, "Carbohydrates", item => item.Carbohydrates, "g");
                 AddNutrientContribution(breakdown, group, "Fat", item => item.Fat, "g");
+                
+                // Add former macronutrients that are now micronutrients
                 AddNutrientContribution(breakdown, group, "Fiber", item => item.Fiber, "g");
+                AddNutrientContribution(breakdown, group, "Sugar", item => item.Sugar, "g");
+                AddNutrientContribution(breakdown, group, "Saturated Fat", item => item.SaturatedFat, "g");
                 
                 // Add micronutrient contributions
                 var allMicronutrients = new HashSet<string>();

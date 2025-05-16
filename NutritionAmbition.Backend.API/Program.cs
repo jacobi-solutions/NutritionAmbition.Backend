@@ -77,6 +77,9 @@ builder.Services.AddSingleton<IDailyGoalService, DailyGoalService>();
 // Register the Profile service
 builder.Services.AddSingleton<IProfileService, ProfileService>();
 
+// Register the GoalScaffoldingService
+builder.Services.AddSingleton<IGoalScaffoldingService, GoalScaffoldingService>();
+
 // Register the Conversation service and repository
 builder.Services.AddSingleton<ChatMessageRepository>();
 builder.Services.AddScoped<IConversationService, ConversationService>();

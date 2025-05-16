@@ -17,11 +17,16 @@ namespace NutritionAmbition.Backend.API.Services
     public class DailyGoalService : IDailyGoalService
     {
         private readonly DailyGoalRepository _dailyGoalRepository;
+        private readonly IGoalScaffoldingService _goalScaffoldingService;
         private readonly ILogger<DailyGoalService> _logger;
         
-        public DailyGoalService(DailyGoalRepository dailyGoalRepository, ILogger<DailyGoalService> logger)
+        public DailyGoalService(
+            DailyGoalRepository dailyGoalRepository, 
+            IGoalScaffoldingService goalScaffoldingService,
+            ILogger<DailyGoalService> logger)
         {
             _dailyGoalRepository = dailyGoalRepository;
+            _goalScaffoldingService = goalScaffoldingService;
             _logger = logger;
         }
 
@@ -93,26 +98,14 @@ namespace NutritionAmbition.Backend.API.Services
 
         private DailyGoal CreateDefaultDailyGoal(string accountId, DateTime effectiveDate)
         {
+            const double DEFAULT_CALORIES = 2000;
+            
             var defaultGoal = new DailyGoal
             {
                 AccountId = accountId,
                 EffectiveDateUtc = effectiveDate.Date,
-                BaseCalories = 2000,
-                NutrientGoals = new System.Collections.Generic.List<NutrientGoal>
-                {
-                    new NutrientGoal { NutrientName = "Protein", MinValue = 50, Unit = "g" },
-                    new NutrientGoal { NutrientName = "Carbohydrates", PercentageOfCalories = 0.5, Unit = "g" },
-                    new NutrientGoal { NutrientName = "Fat", PercentageOfCalories = 0.3, Unit = "g" },
-                    new NutrientGoal { NutrientName = "Saturated Fat", MaxValue = 20, Unit = "g" },
-                    new NutrientGoal { NutrientName = "Fiber", MinValue = 25, Unit = "g" },
-                    new NutrientGoal { NutrientName = "Sugar", MaxValue = 36, Unit = "g" },
-                    new NutrientGoal { NutrientName = "Sodium", MaxValue = 2300, Unit = "mg" },
-                    new NutrientGoal { NutrientName = "Calcium", MinValue = 1000, Unit = "mg" },
-                    new NutrientGoal { NutrientName = "Iron", MinValue = 18, Unit = "mg" },
-                    new NutrientGoal { NutrientName = "Vitamin C", MinValue = 75, Unit = "mg" },
-                    new NutrientGoal { NutrientName = "Vitamin D", MinValue = 15, Unit = "μg" },
-                    new NutrientGoal { NutrientName = "Potassium", MinValue = 3500, Unit = "mg" }
-                }
+                BaseCalories = DEFAULT_CALORIES,
+                NutrientGoals = _goalScaffoldingService.GenerateNutrientGoals(DEFAULT_CALORIES)
             };
             
             return defaultGoal;

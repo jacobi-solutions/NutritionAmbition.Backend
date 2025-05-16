@@ -18,15 +18,18 @@ namespace NutritionAmbition.Backend.API.Services
     {
         private readonly DailyGoalRepository _dailyGoalRepository;
         private readonly AccountsService _accountsService;
+        private readonly IGoalScaffoldingService _goalScaffoldingService;
         private readonly ILogger<ProfileService> _logger;
 
         public ProfileService(
             DailyGoalRepository dailyGoalRepository,
             AccountsService accountsService,
+            IGoalScaffoldingService goalScaffoldingService,
             ILogger<ProfileService> logger)
         {
             _dailyGoalRepository = dailyGoalRepository;
             _accountsService = accountsService;
+            _goalScaffoldingService = goalScaffoldingService;
             _logger = logger;
         }
 
@@ -92,23 +95,12 @@ namespace NutritionAmbition.Backend.API.Services
                 double activityFactor = GetActivityFactor(request.ActivityLevel);
                 double adjustedCalories = Math.Round(bmr * activityFactor);
 
-                // Create nutrient goals based on calculated calories
-                var proteinGrams = Math.Round((adjustedCalories * 0.25) / 4); // 25% of calories from protein (4 calories per gram)
-                var fatGrams = Math.Round((adjustedCalories * 0.30) / 9);     // 30% of calories from fat (9 calories per gram)
-                var carbGrams = Math.Round((adjustedCalories * 0.45) / 4);    // 45% of calories from carbs (4 calories per gram)
-
                 // Create DailyGoal
                 var dailyGoal = new DailyGoal
                 {
                     AccountId = request.AccountId,
                     BaseCalories = adjustedCalories,
-                    NutrientGoals = new List<NutrientGoal>
-                    {
-                        new NutrientGoal { NutrientName = "Protein", MinValue = proteinGrams, Unit = "g" },
-                        new NutrientGoal { NutrientName = "Fat", MinValue = fatGrams, Unit = "g" },
-                        new NutrientGoal { NutrientName = "Carbohydrates", MinValue = carbGrams, Unit = "g" },
-                        new NutrientGoal { NutrientName = "Fiber", MinValue = 25, Unit = "g" }
-                    }
+                    NutrientGoals = _goalScaffoldingService.GenerateNutrientGoals(adjustedCalories)
                 };
 
                 // Save the DailyGoal
