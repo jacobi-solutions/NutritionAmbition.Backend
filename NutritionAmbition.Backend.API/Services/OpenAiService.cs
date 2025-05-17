@@ -1,19 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Settings;
 using System.Text.Json.Serialization;
 using OpenAI;
 using OpenAI.Assistants;
+using OpenAI.Chat;
 using NutritionAmbition.Backend.API.Constants;
 
 namespace NutritionAmbition.Backend.API.Services
@@ -28,7 +26,8 @@ namespace NutritionAmbition.Backend.API.Services
         Task<string> CreateChatCompletionAsync(string systemPrompt, string userPrompt);
         Task<string> CreateNewThreadAsync();
         Task<string> AppendMessageToThreadAsync(string threadId, string message, string role = "user");
-        Task<string> StartRunAsync(string threadId, string assistantId);
+        Task<string> StartRunAsync(string assistantId, string threadId);
+        Task<string> GetChatResponseAsync(List<object> messages, int? maxTokens = null, double? temperature = null, string responseFormat = null);
         Task<RunResponse> PollRunStatusAsync(string threadId, string runId, int maxAttempts = 0, int delayMs = 0);
         Task<RunResponse> SubmitToolOutputsAsync(string threadId, string runId, List<Models.ToolOutput> toolOutputs);
         Task<List<Models.ThreadMessage>> GetRunMessagesAsync(string threadId, string runId);
@@ -39,100 +38,105 @@ namespace NutritionAmbition.Backend.API.Services
     public class OpenAiService : IOpenAiService
     {
         private readonly ILogger<OpenAiService> _logger;
-        private readonly HttpClient _httpClient;
         private readonly OpenAiSettings _openAiSettings;
         private readonly OpenAIClient _openAiClient;
         private readonly IAccountsService _accountsService;
         private readonly IDailyGoalService _dailyGoalService;
-        private readonly IConversationService _conversationService;
 
         /// <summary>
         /// Initializes a new instance of the OpenAiService class
         /// </summary>
         /// <param name="logger">Logger for logging operations</param>
-        /// <param name="httpClient">HttpClient for making API calls</param>
         /// <param name="openAiSettings">Configuration settings for OpenAI</param>
         /// <param name="openAiClient">The OpenAI SDK client</param>
         /// <param name="accountsService">Service for account operations</param>
         /// <param name="dailyGoalService">Service for daily goals</param>
-        /// <param name="conversationService">Service for chat conversation operations</param>
         public OpenAiService(
             ILogger<OpenAiService> logger, 
-            HttpClient httpClient, 
             OpenAiSettings openAiSettings, 
             OpenAIClient openAiClient,
             IAccountsService accountsService,
-            IDailyGoalService dailyGoalService,
-            IConversationService conversationService)
+            IDailyGoalService dailyGoalService)
         {
             _logger = logger;
-            _httpClient = httpClient;
             _openAiSettings = openAiSettings;
             _openAiClient = openAiClient;
             _accountsService = accountsService;
             _dailyGoalService = dailyGoalService;
-            _conversationService = conversationService;
-            
-            // Configure the HTTP client with the API key from configuration
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _openAiSettings.ApiKey);
-            _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }
 
         /// <summary>
-        /// Gets a chat response from the OpenAI API
+        /// Gets a chat response from the OpenAI API using the SDK
         /// </summary>
         /// <param name="messages">List of messages to send to the API</param>
-        /// <param name="temperature">Temperature parameter for response randomness (0.0-1.0)</param>
         /// <param name="maxTokens">Maximum number of tokens in the response</param>
+        /// <param name="temperature">Temperature parameter for response randomness (0.0-1.0)</param>
         /// <param name="responseFormat">Format for the response (null or "json_object")</param>
         /// <returns>The content of the AI's response</returns>
-        private async Task<string> GetChatResponseAsync(
+        public async Task<string> GetChatResponseAsync(
             List<object> messages, 
-            float? temperature = null,
-            int? maxTokens = null,
+            int? maxTokens = null, 
+            double? temperature = null,
             string responseFormat = null)
         {
             try
             {
-                // Use configured temperature or default from settings
-                float tempValue = temperature ?? _openAiSettings.DefaultTemperature;
-                
-                // Use the model configured in settings rather than hardcoding
-                var requestBody = new
+                _logger.LogInformation("Calling OpenAI chat completion API");
+
+                var chatMessages = new List<OpenAI.Chat.ChatMessage>();
+
+                foreach (var message in messages)
                 {
-                    model = _openAiSettings.Model,
-                    messages,
-                    temperature = tempValue,
-                    max_tokens = maxTokens,
-                    response_format = responseFormat != null ? new { type = responseFormat } : null
-                };
+                    var role = message.GetType().GetProperty("role")?.GetValue(message)?.ToString();
+                    var content = message.GetType().GetProperty("content")?.GetValue(message)?.ToString();
 
-                var content = new StringContent(
-                    JsonSerializer.Serialize(requestBody),
-                    Encoding.UTF8,
-                    "application/json");
+                    if (string.IsNullOrEmpty(role) || string.IsNullOrEmpty(content))
+                    {
+                        continue;
+                    }
 
-                // Use API base URL and endpoints from configuration
-                string chatCompletionsUrl = $"{_openAiSettings.ApiBaseUrl.TrimEnd('/')}{_openAiSettings.ChatCompletionsEndpoint}";
-                var response = await _httpClient.PostAsync(chatCompletionsUrl, content);
-                response.EnsureSuccessStatusCode();
-
-                var responseContent = await response.Content.ReadAsStringAsync();
-                var openAiResponse = JsonSerializer.Deserialize<OpenAiResponse>(responseContent, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (openAiResponse?.Choices == null || openAiResponse.Choices.Count == 0)
-                {
-                    throw new Exception("Invalid response from OpenAI");
+                    switch (role.ToLower())
+                    {
+                        case "system":
+                            chatMessages.Add(new SystemChatMessage(content));
+                            break;
+                        case "user":
+                            chatMessages.Add(new UserChatMessage(content));
+                            break;
+                        case "assistant":
+                            chatMessages.Add(new AssistantChatMessage(content));
+                            break;
+                        default:
+                            _logger.LogWarning($"Unknown role: {role}");
+                            break;
+                    }
                 }
 
-                return openAiResponse.Choices[0].Message.Content;
+                var options = new ChatCompletionOptions
+                {
+                    MaxOutputTokenCount = maxTokens,
+                    Temperature = (float?)(temperature ?? _openAiSettings.DefaultTemperature)
+                };
+
+                if (responseFormat == OpenAiModelNames.JsonObjectFormat)
+                {
+                    options.ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat();
+                }
+
+                var chatClient = _openAiClient.GetChatClient(_openAiSettings.Model);
+                var result = await chatClient.CompleteChatAsync(chatMessages, options);
+                var responseText = result.Value.Content?.FirstOrDefault()?.Text;
+
+                if (string.IsNullOrWhiteSpace(responseText))
+                {
+                    throw new Exception("No valid response content returned from OpenAI");
+                }
+
+                return responseText;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting chat response from OpenAI");
+                _logger.LogError(ex, "Error calling OpenAI chat API");
                 throw;
             }
         }
@@ -162,27 +166,27 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                 };
 
-                // Get the chat response from OpenAI
-                var aiContent = await GetChatResponseAsync(
+                // Get a response from OpenAI to determine the best match
+                var aiResponse = await GetChatResponseAsync(
                     messages, 
-                    _openAiSettings.FoodParsingTemperature, 
-                    _openAiSettings.DefaultMaxTokens, 
+                    null, 
+                    _openAiSettings.LowTemperature,
                     OpenAiModelNames.JsonObjectFormat);
                 
                 // Log the raw response
-                _logger.LogDebug("Raw OpenAI response: {RawResponse}", aiContent);
+                _logger.LogDebug("Raw OpenAI response: {RawResponse}", aiResponse);
                 
                 try
                 {
                     // Try to deserialize the OpenAI response into a ParseFoodTextResponse object
-                    var parsedResponse = JsonSerializer.Deserialize<ParseFoodTextResponse>(aiContent, new JsonSerializerOptions
+                    var parsedResponse = JsonSerializer.Deserialize<ParseFoodTextResponse>(aiResponse, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true
                     });
                     
                     if (parsedResponse == null)
                     {
-                        _logger.LogError("JSON deserialization failed: OpenAI response deserialized to null. Raw response: {RawResponse}", aiContent);
+                        _logger.LogError("JSON deserialization failed: OpenAI response deserialized to null. Raw response: {RawResponse}", aiResponse);
                         throw new InvalidOperationException("Failed to parse OpenAI food data: The response was empty or invalid");
                     }
                     
@@ -193,7 +197,7 @@ namespace NutritionAmbition.Backend.API.Services
                 catch (JsonException ex)
                 {
                     // Log error with full OpenAI response and throw exception
-                    _logger.LogError(ex, "JSON deserialization failed: Error deserializing OpenAI response. Raw response: {RawResponse}", aiContent);
+                    _logger.LogError(ex, "JSON deserialization failed: Error deserializing OpenAI response. Raw response: {RawResponse}", aiResponse);
                     throw new InvalidOperationException($"Failed to parse OpenAI food data: {ex.Message}", ex);
                 }
             }
@@ -250,8 +254,9 @@ namespace NutritionAmbition.Backend.API.Services
                 // Get response from OpenAI
                 var aiResponse = await GetChatResponseAsync(
                     messages, 
-                    _openAiSettings.LowTemperature, 
-                    10);
+                    null, 
+                    _openAiSettings.LowTemperature,
+                    OpenAiModelNames.JsonObjectFormat);
                 
                 // Log the raw response
                 _logger.LogDebug("Raw OpenAI response for branded food selection: {RawResponse}", aiResponse);
@@ -340,8 +345,8 @@ namespace NutritionAmbition.Backend.API.Services
                 // Get response from OpenAI
                 var aiResponse = await GetChatResponseAsync(
                     messages, 
-                    _openAiSettings.LowTemperature, 
                     null, 
+                    _openAiSettings.LowTemperature,
                     OpenAiModelNames.JsonObjectFormat);
                 
                 // Log the raw response
@@ -406,35 +411,11 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var coachResponse = await GetChatResponseAsync(
                     messages, 
-                    _openAiSettings.DefaultTemperature, 
-                    _openAiSettings.CoachResponseMaxTokens);
+                    _openAiSettings.CoachResponseMaxTokens, 
+                    _openAiSettings.DefaultTemperature,
+                    OpenAiModelNames.JsonObjectFormat);
                     
                 _logger.LogInformation("Generated AI coach response: {CoachResponse}", coachResponse);
-                
-                // Log the coach response to the chat history if we have an account ID
-                if (nutritionData?.AccountId != null)
-                {
-                    try
-                    {
-                        // Create request to log the message
-                        var logRequest = new LogChatMessageRequest
-                        {
-                            Content = coachResponse.Trim(),
-                            Role = "assistant"
-                        };
-                        
-                        // Log the message to the database
-                        await _conversationService.LogMessageAsync(nutritionData.AccountId, logRequest);
-                        
-                        // Log success
-                        _logger.LogInformation("Successfully logged coach response to chat history for account {AccountId}", nutritionData.AccountId);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Log warning but continue - this shouldn't prevent returning the coach response
-                        _logger.LogWarning(ex, "Failed to log coach response to chat history for account {AccountId}", nutritionData.AccountId);
-                    }
-                }
                 
                 // Return the coach response
                 return coachResponse.Trim();
@@ -516,8 +497,8 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var aiContent = await GetChatResponseAsync(
                     messages, 
-                    _openAiSettings.GroupingTemperature, 
                     null, 
+                    _openAiSettings.GroupingTemperature,
                     OpenAiModelNames.JsonObjectFormat);
                     
                 _logger.LogDebug("OpenAI grouping response content: {AIContent}", aiContent);
@@ -598,7 +579,7 @@ namespace NutritionAmbition.Backend.API.Services
                     new { role = OpenAiModelNames.SystemRole, content = systemPrompt },
                     new { role = OpenAiModelNames.UserRole, content = userPrompt }
                 };
-                return await GetChatResponseAsync(messages);
+                return await GetChatResponseAsync(messages, null, null, OpenAiModelNames.JsonObjectFormat);
             }
             catch (Exception ex)
             {
@@ -671,7 +652,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        public async Task<string> StartRunAsync(string threadId, string assistantId)
+        public async Task<string> StartRunAsync(string assistantId, string threadId)
         {
             try
             {
@@ -903,7 +884,7 @@ namespace NutritionAmbition.Backend.API.Services
                 await AppendMessageToThreadAsync(threadId, systemMessage, "system");
 
                 // 3. Start the run with the assistant
-                var runId = await StartRunAsync(threadId, _openAiSettings.AssistantId);
+                var runId = await StartRunAsync(_openAiSettings.AssistantId, threadId);
 
                 // 4. Poll until the run completes
                 var runResponse = await PollRunStatusAsync(threadId, runId);
@@ -1018,6 +999,28 @@ namespace NutritionAmbition.Backend.API.Services
                     accountId, threadId);
                 throw;
             }
+        }
+
+        
+        private class FoodFeedback
+        {
+            [JsonPropertyName("notes")]
+            public string Notes { get; set; }
+
+            [JsonPropertyName("tips")]
+            public string Tips { get; set; }
+        }
+
+        private class ParsedFood
+        {
+            [JsonPropertyName("foodName")]
+            public string FoodName { get; set; }
+
+            [JsonPropertyName("quantity")]
+            public double Quantity { get; set; }
+
+            [JsonPropertyName("unit")]
+            public string Unit { get; set; }
         }
     }
 

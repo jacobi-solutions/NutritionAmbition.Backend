@@ -367,7 +367,7 @@ namespace NutritionAmbition.Backend.API.Services
                 string runId;
                 try
                 {
-                    runId = await _openAiService.StartRunAsync(threadId, _assistantId);
+                    runId = await _openAiService.StartRunAsync(_assistantId, threadId);
                     _logger.LogInformation("Started run {RunId} for thread {ThreadId}", runId, threadId);
                 }
                 catch (Exception ex)

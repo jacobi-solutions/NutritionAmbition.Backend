@@ -12,7 +12,6 @@ using MongoDB.Driver;
 using NutritionAmbition.Backend.API;
 using NutritionAmbition.Backend.API.Middleware;
 using OpenAI;
-using System.Net.Http;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -109,31 +108,13 @@ builder.Services.AddSingleton<INutritionixService, NutritionixService>();
 builder.Services.AddScoped<INutritionService, NutritionService>();
 
 // Register OpenAI SDK Client
-builder.Services.AddSingleton(sp => {
+builder.Services.AddSingleton(sp => 
+{
     return new OpenAIClient(openAiSettings.ApiKey);
 });
 
-// Register OpenAI Service with HttpClient
-builder.Services.AddHttpClient<OpenAiService>();
-builder.Services.AddScoped<IOpenAiService>(sp => {
-    var logger = sp.GetRequiredService<ILogger<OpenAiService>>();
-    var httpClient = sp.GetRequiredService<HttpClient>();
-    var openAiSettings = sp.GetRequiredService<OpenAiSettings>();
-    var openAiClient = sp.GetRequiredService<OpenAIClient>();
-    var accountsService = sp.GetRequiredService<IAccountsService>();
-    var dailyGoalService = sp.GetRequiredService<IDailyGoalService>();
-    var conversationService = sp.GetRequiredService<IConversationService>();
-    
-    return new OpenAiService(
-        logger, 
-        httpClient, 
-        openAiSettings, 
-        openAiClient,
-        accountsService,
-        dailyGoalService,
-        conversationService
-    );
-});
+// Register OpenAI service
+builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 
 // Register Thread Service
 builder.Services.AddScoped<IThreadService, ThreadService>();
