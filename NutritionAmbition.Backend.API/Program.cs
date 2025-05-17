@@ -114,8 +114,26 @@ builder.Services.AddSingleton(sp => {
 });
 
 // Register OpenAI Service with HttpClient
-builder.Services.AddHttpClient<IOpenAiService, OpenAiService>();
-builder.Services.AddScoped<IOpenAiService, OpenAiService>();
+builder.Services.AddHttpClient<OpenAiService>();
+builder.Services.AddScoped<IOpenAiService>(sp => {
+    var logger = sp.GetRequiredService<ILogger<OpenAiService>>();
+    var httpClient = sp.GetRequiredService<HttpClient>();
+    var openAiSettings = sp.GetRequiredService<OpenAiSettings>();
+    var openAiClient = sp.GetRequiredService<OpenAIClient>();
+    var accountsService = sp.GetRequiredService<IAccountsService>();
+    var dailyGoalService = sp.GetRequiredService<IDailyGoalService>();
+    var conversationService = sp.GetRequiredService<IConversationService>();
+    
+    return new OpenAiService(
+        logger, 
+        httpClient, 
+        openAiSettings, 
+        openAiClient,
+        accountsService,
+        dailyGoalService,
+        conversationService
+    );
+});
 
 // Register Thread Service
 builder.Services.AddScoped<IThreadService, ThreadService>();

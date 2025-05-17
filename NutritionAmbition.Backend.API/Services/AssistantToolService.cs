@@ -219,25 +219,25 @@ namespace NutritionAmbition.Backend.API.Services
                 }
                 
                 // Determine if user has a profile
-                bool hasUserProfile = account.UserProfile != null;
+                bool hasProfile = account.UserProfile != null;
                 
-                // Retrieve today's goal
-                var todayGoal = await _dailyGoalService.GetOrGenerateTodayGoalAsync(accountId);
+                // Determine if user has goals by checking for a default goal profile
+                var hasDefaultGoalProfile = await _dailyGoalService.HasDefaultGoalProfileAsync(accountId);
                 
-                // Determine if user has goals
-                bool hasGoals = todayGoal != null;
+                // Set HasGoals based on presence of default goal profile
+                bool hasGoals = hasDefaultGoalProfile;
                 
                 // Set timezone offset, using 0 as default if not provided
                 int offset = timezoneOffsetMinutes ?? 0;
                 
                 // Compute local date based on timezone offset
-                string localDate = DateTime.UtcNow.AddMinutes(offset).ToString("yyyy-MM-dd");
+                DateTime localDate = DateTime.UtcNow.AddMinutes(offset);
                 
                 // Populate response
-                response.HasUserProfile = hasUserProfile;
+                response.IsAnonymousUser = account.IsAnonymousUser;
+                response.HasProfile = hasProfile;
                 response.HasGoals = hasGoals;
                 response.LocalDate = localDate;
-                response.TimezoneOffsetMinutes = offset;
                 response.IsSuccess = true;
                 
                 _logger.LogInformation("Successfully retrieved user context for account {AccountId}", accountId);

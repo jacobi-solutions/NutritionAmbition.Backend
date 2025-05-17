@@ -15,6 +15,7 @@ namespace NutritionAmbition.Backend.API.Services
         Task<SetDailyGoalResponse> SetGoalsAsync(string accountId, SetDailyGoalRequest request);
         Task<DailyGoal> GetOrGenerateTodayGoalAsync(string accountId);
         Task<DailyGoal?> GetGoalByDateAsync(string accountId, DateTime dateUtc);
+        Task<bool> HasDefaultGoalProfileAsync(string accountId);
     }
 
     public class DailyGoalService : IDailyGoalService
@@ -145,6 +146,23 @@ namespace NutritionAmbition.Backend.API.Services
             };
             
             return defaultGoal;
+        }
+
+        public async Task<bool> HasDefaultGoalProfileAsync(string accountId)
+        {
+            try
+            {
+                _logger.LogInformation("Checking if account {AccountId} has a default goal profile", accountId);
+                var defaultProfile = await _defaultGoalProfileRepository.GetByAccountIdAsync(accountId);
+                bool hasDefaultProfile = defaultProfile != null;
+                _logger.LogInformation("Account {AccountId} has default goal profile: {HasProfile}", accountId, hasDefaultProfile);
+                return hasDefaultProfile;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking if account {AccountId} has a default goal profile", accountId);
+                return false;
+            }
         }
     }
 } 

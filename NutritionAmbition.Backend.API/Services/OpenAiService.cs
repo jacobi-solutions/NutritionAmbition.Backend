@@ -44,6 +44,7 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly OpenAIClient _openAiClient;
         private readonly IAccountsService _accountsService;
         private readonly IDailyGoalService _dailyGoalService;
+        private readonly IConversationService _conversationService;
 
         /// <summary>
         /// Initializes a new instance of the OpenAiService class
@@ -54,13 +55,15 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="openAiClient">The OpenAI SDK client</param>
         /// <param name="accountsService">Service for account operations</param>
         /// <param name="dailyGoalService">Service for daily goals</param>
+        /// <param name="conversationService">Service for chat conversation operations</param>
         public OpenAiService(
             ILogger<OpenAiService> logger, 
             HttpClient httpClient, 
             OpenAiSettings openAiSettings, 
             OpenAIClient openAiClient,
             IAccountsService accountsService,
-            IDailyGoalService dailyGoalService)
+            IDailyGoalService dailyGoalService,
+            IConversationService conversationService)
         {
             _logger = logger;
             _httpClient = httpClient;
@@ -68,6 +71,7 @@ namespace NutritionAmbition.Backend.API.Services
             _openAiClient = openAiClient;
             _accountsService = accountsService;
             _dailyGoalService = dailyGoalService;
+            _conversationService = conversationService;
             
             // Configure the HTTP client with the API key from configuration
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _openAiSettings.ApiKey);
@@ -406,6 +410,33 @@ namespace NutritionAmbition.Backend.API.Services
                     _openAiSettings.CoachResponseMaxTokens);
                     
                 _logger.LogInformation("Generated AI coach response: {CoachResponse}", coachResponse);
+                
+                // Log the coach response to the chat history if we have an account ID
+                if (nutritionData?.AccountId != null)
+                {
+                    try
+                    {
+                        // Create request to log the message
+                        var logRequest = new LogChatMessageRequest
+                        {
+                            Content = coachResponse.Trim(),
+                            Role = "assistant"
+                        };
+                        
+                        // Log the message to the database
+                        await _conversationService.LogMessageAsync(nutritionData.AccountId, logRequest);
+                        
+                        // Log success
+                        _logger.LogInformation("Successfully logged coach response to chat history for account {AccountId}", nutritionData.AccountId);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log warning but continue - this shouldn't prevent returning the coach response
+                        _logger.LogWarning(ex, "Failed to log coach response to chat history for account {AccountId}", nutritionData.AccountId);
+                    }
+                }
+                
+                // Return the coach response
                 return coachResponse.Trim();
             }
             catch (Exception ex)
@@ -943,15 +974,15 @@ namespace NutritionAmbition.Backend.API.Services
                     // Continue with hasUserProfile = false
                 }
 
-                // Check if user has goals from DailyGoalService
+                // Check if user has default goal profile
                 try
                 {
-                    var dailyGoal = await _dailyGoalService.GetOrGenerateTodayGoalAsync(accountId);
-                    hasGoals = dailyGoal != null;
+                    hasGoals = await _dailyGoalService.HasDefaultGoalProfileAsync(accountId);
+                    _logger.LogInformation("Account {AccountId} has default goal profile: {HasDefaultGoalProfile}", accountId, hasGoals);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error checking goals for account {AccountId}, continuing with hasGoals=false", accountId);
+                    _logger.LogWarning(ex, "Error checking default goal profile for account {AccountId}, continuing with hasGoals=false", accountId);
                     // Continue with hasGoals = false
                 }
 

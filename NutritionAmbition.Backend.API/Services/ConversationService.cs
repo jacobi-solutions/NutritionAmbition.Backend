@@ -341,14 +341,14 @@ namespace NutritionAmbition.Backend.API.Services
                         // For regular user message, append user message and log it
                         await _openAiService.AppendMessageToThreadAsync(threadId, message);
                         _logger.LogInformation("Successfully appended user message to thread {ThreadId}", threadId);
-                        
-                        // Log the user message to the chat history
+
+                        // Explicitly log user message since frontend no longer does it.
                         var logUserMessageRequest = new LogChatMessageRequest
                         {
                             Content = message,
                             Role = "user"
                         };
-                        
+
                         var logUserResult = await LogMessageAsync(accountId, logUserMessageRequest);
                         if (!logUserResult.IsSuccess)
                         {

@@ -5,9 +5,10 @@ namespace NutritionAmbition.Backend.API.DataContracts
 {
     public class GetUserContextResponse : Response
     {
-        public bool HasUserProfile { get; set; }
+        public bool IsAnonymousUser { get; set; }
+        public bool HasProfile { get; set; }
         public bool HasGoals { get; set; }
-        public string LocalDate { get; set; }
-        public int TimezoneOffsetMinutes { get; set; }
+        public DateTime LocalDate { get; set; }
+        public DateTime UtcNow { get; set; } = DateTime.UtcNow;
     }
 } 
