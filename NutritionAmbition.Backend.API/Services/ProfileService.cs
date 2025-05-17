@@ -10,38 +10,34 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface IProfileService
     {
-        Task<SaveProfileAndGoalsResponse> SaveProfileAndGoalsAsync(SaveProfileAndGoalsRequest request);
+        Task<SaveUserProfileResponse> SaveUserProfileAsync(SaveUserProfileRequest request);
         Task<GetProfileAndGoalsResponse> GetProfileAndGoalsAsync(GetProfileAndGoalsRequest request);
     }
     
     public class ProfileService : IProfileService
     {
         private readonly DailyGoalRepository _dailyGoalRepository;
-        private readonly AccountsService _accountsService;
-        private readonly IGoalScaffoldingService _goalScaffoldingService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<ProfileService> _logger;
 
         public ProfileService(
             DailyGoalRepository dailyGoalRepository,
-            AccountsService accountsService,
-            IGoalScaffoldingService goalScaffoldingService,
+            IAccountsService accountsService,
             ILogger<ProfileService> logger)
         {
             _dailyGoalRepository = dailyGoalRepository;
             _accountsService = accountsService;
-            _goalScaffoldingService = goalScaffoldingService;
             _logger = logger;
         }
 
-        public async Task<SaveProfileAndGoalsResponse> SaveProfileAndGoalsAsync(SaveProfileAndGoalsRequest request)
+        public async Task<SaveUserProfileResponse> SaveUserProfileAsync(SaveUserProfileRequest request)
         {
-            var response = new SaveProfileAndGoalsResponse();
+            var response = new SaveUserProfileResponse();
 
             try
             {
-                _logger.LogInformation("Creating profile and goals for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Saving user profile for account {AccountId}", request.AccountId);
 
-                // Validate the request
                 if (string.IsNullOrEmpty(request.AccountId))
                 {
                     response.AddError("AccountId is required");
@@ -72,7 +68,6 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                // Verify the account exists
                 var account = await _accountsService.GetAccountByIdAsync(request.AccountId);
                 if (account == null)
                 {
@@ -80,62 +75,26 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                // Calculate BMR using Mifflin-St Jeor formula
-                double bmr = 0;
-                if (request.Sex.ToLower() == "male")
+                if (account.UserProfile == null)
                 {
-                    bmr = (10 * request.WeightKg) + (6.25 * request.HeightCm) - (5 * request.Age) + 5;
-                }
-                else
-                {
-                    bmr = (10 * request.WeightKg) + (6.25 * request.HeightCm) - (5 * request.Age) - 161;
+                    account.UserProfile = new UserProfile();
                 }
 
-                // Adjust BMR for activity level
-                double activityFactor = GetActivityFactor(request.ActivityLevel);
-                double adjustedCalories = Math.Round(bmr * activityFactor);
+                account.UserProfile.Age = request.Age;
+                account.UserProfile.Sex = request.Sex;
+                account.UserProfile.HeightCm = request.HeightCm;
+                account.UserProfile.WeightKg = request.WeightKg;
+                account.UserProfile.ActivityLevel = request.ActivityLevel;
 
-                // Create DailyGoal
-                var dailyGoal = new DailyGoal
-                {
-                    AccountId = request.AccountId,
-                    BaseCalories = adjustedCalories,
-                    NutrientGoals = _goalScaffoldingService.GenerateNutrientGoals(adjustedCalories)
-                };
+                await _accountsService.UpdateAccountAsync(account.Id, account);
 
-                // Save the DailyGoal
-                var savedGoal = await _dailyGoalRepository.CreateAsync(dailyGoal);
-
-                // Also save the profile data to the Account
-                if (account != null)
-                {
-                    // Initialize UserProfile if it doesn't exist
-                    if (account.UserProfile == null)
-                    {
-                        account.UserProfile = new UserProfile();
-                    }
-
-                    // Update profile data
-                    account.UserProfile.Age = request.Age;
-                    account.UserProfile.Sex = request.Sex;
-                    account.UserProfile.HeightCm = request.HeightCm;
-                    account.UserProfile.WeightKg = request.WeightKg;
-                    account.UserProfile.ActivityLevel = request.ActivityLevel;
-
-                    // Save the updated account
-                    await _accountsService.UpdateAccountAsync(account.Id, account);
-                    _logger.LogInformation("Updated account profile for {AccountId}", request.AccountId);
-                }
-
-                response.IsCreated = true;
-                response.DailyGoal = savedGoal;
                 response.IsSuccess = true;
-                _logger.LogInformation("Successfully created profile and goals for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Successfully saved user profile for account {AccountId}", request.AccountId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating profile and goals for account {AccountId}", request.AccountId);
-                response.AddError("An error occurred while creating the profile and goals.");
+                _logger.LogError(ex, "Error saving user profile for account {AccountId}", request.AccountId);
+                response.AddError("An error occurred while saving the user profile.");
             }
 
             return response;
@@ -190,7 +149,7 @@ namespace NutritionAmbition.Backend.API.Services
             return response;
         }
 
-        private double GetActivityFactor(string activityLevel)
+        public double GetActivityFactor(string activityLevel)
         {
             return activityLevel.ToLower() switch
             {

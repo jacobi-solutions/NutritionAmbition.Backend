@@ -15,34 +15,34 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface IConversationService
     {
-        Task<MergeAnonymousAccountResponse> MergeAnonymousAccountAsync(string anonymousAccountId, string userAccountId);
-        Task<BotMessageResponse> GetInitialMessageAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal);
         Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal);
         Task<BotMessageResponse> GetAnonymousWarningAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal);
         Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request);
         Task<GetChatMessagesResponse> GetChatMessagesAsync(string accountId, GetChatMessagesRequest request);
         Task<ClearChatMessagesResponse> ClearChatMessagesAsync(string accountId, ClearChatMessagesRequest request);
-        Task<AssistantRunMessageResponse> RunAssistantConversationAsync(string accountId, string message);
+        Task<AssistantRunMessageResponse> RunAssistantConversationAsync(string accountId, string message, int? timezoneOffsetMinutes = null);
     }
 
     public class ConversationService : IConversationService
     {
         private readonly ChatMessageRepository _chatMessageRepository;
         private readonly FoodEntryRepository _foodEntryRepository;
-        private readonly AccountsService _accountsService;
+        private readonly IAccountsService _accountsService;
         private readonly IOpenAiService _openAiService;
         private readonly IThreadService _threadService;
         private readonly IAssistantToolHandlerService _assistantToolHandlerService;
+        private readonly IDailyGoalService _dailyGoalService;
         private readonly ILogger<ConversationService> _logger;
         private readonly string _assistantId;
 
         public ConversationService(
             ChatMessageRepository chatMessageRepository,
             FoodEntryRepository foodEntryRepository,
-            AccountsService accountsService,
+            IAccountsService accountsService,
             IOpenAiService openAiService,
             IThreadService threadService,
             IAssistantToolHandlerService assistantToolHandlerService,
+            IDailyGoalService dailyGoalService,
             ILogger<ConversationService> logger,
             OpenAiSettings openAiSettings)
         {
@@ -52,120 +52,9 @@ namespace NutritionAmbition.Backend.API.Services
             _openAiService = openAiService;
             _threadService = threadService;
             _assistantToolHandlerService = assistantToolHandlerService;
+            _dailyGoalService = dailyGoalService;
             _logger = logger;
             _assistantId = openAiSettings.AssistantId;
-        }
-
-        public async Task<BotMessageResponse> GetInitialMessageAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal)
-        {
-            var response = new BotMessageResponse();
-
-            try
-            {
-                _logger.LogInformation("Getting initial message for account {AccountId}", accountId);
-                
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot get initial message: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
-
-                var systemPrompt = "You are a friendly and helpful nutrition assistant. Your goal is to help users track their meals and maintain a healthy diet. Be encouraging and supportive.";
-                var userPrompt = hasLoggedFirstMeal 
-                    ? "The user has logged their first meal. Welcome them and ask about their goals."
-                    : "Welcome the user and ask them to log their first meal.";
-
-                if (lastLoggedDate.HasValue)
-                {
-                    var daysSinceLastLog = (DateTime.UtcNow - lastLoggedDate.Value).Days;
-                    if (daysSinceLastLog > 0)
-                    {
-                        userPrompt += $" It's been {daysSinceLastLog} days since their last log. Encourage them to continue tracking.";
-                    }
-                }
-
-                try
-                {
-                    var message = await _openAiService.CreateChatCompletionAsync(systemPrompt, userPrompt);
-                    _logger.LogInformation("Successfully generated initial message for account {AccountId}", accountId);
-                    response.Message = message;
-                    response.IsSuccess = true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error generating OpenAI message for account {AccountId}: {ErrorMessage}", 
-                        accountId, ex.Message);
-                    
-                    // Provide a fallback message rather than failing
-                    _logger.LogInformation("Using fallback message for account {AccountId}", accountId);
-                    response.Message = "Hello! I'm your nutrition assistant. How can I help you today?";
-                    response.IsSuccess = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating initial message for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
-                response.AddError("Failed to generate welcome message.");
-            }
-
-            return response;
-        }
-
-        public async Task<MergeAnonymousAccountResponse> MergeAnonymousAccountAsync(string anonymousAccountId, string userAccountId)
-        {
-            var response = new MergeAnonymousAccountResponse();
-
-            try
-            {
-                _logger.LogInformation("Merging anonymous account {AnonymousAccountId} to user account {UserAccountId}", 
-                    anonymousAccountId, userAccountId);
-                    
-                if (string.IsNullOrEmpty(anonymousAccountId))
-                {
-                    _logger.LogWarning("Cannot merge accounts: Anonymous account ID is null or empty");
-                    response.AddError("Anonymous account ID is required.");
-                    return response;
-                }
-                
-                if (string.IsNullOrEmpty(userAccountId))
-                {
-                    _logger.LogWarning("Cannot merge accounts: User account ID is null or empty");
-                    response.AddError("User account ID is required.");
-                    return response;
-                }
-                
-                if (anonymousAccountId == userAccountId)
-                {
-                    _logger.LogWarning("Cannot merge accounts: Anonymous account ID and user account ID are the same");
-                    response.AddError("Anonymous account and user account cannot be the same.");
-                    return response;
-                }
-
-                long chatCount = await _chatMessageRepository.UpdateAccountReferencesAsync(anonymousAccountId, userAccountId);
-                _logger.LogInformation("Migrated {Count} chat messages from anonymous account {AnonymousAccountId} to user account {UserAccountId}",
-                    chatCount, anonymousAccountId, userAccountId);
-                    
-                long foodCount = await _foodEntryRepository.UpdateAccountReferencesAsync(anonymousAccountId, userAccountId);
-                _logger.LogInformation("Migrated {Count} food entries from anonymous account {AnonymousAccountId} to user account {UserAccountId}",
-                    foodCount, anonymousAccountId, userAccountId);
-                    
-                await _accountsService.DeleteAccountAsync(anonymousAccountId);
-                _logger.LogInformation("Successfully deleted anonymous account {AnonymousAccountId} after migration", anonymousAccountId);
-
-                response.IsSuccess = true;
-                response.ChatMessagesMigrated = chatCount;
-                response.FoodEntriesMigrated = foodCount;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error merging anonymous account {AnonymousAccountId} into user account {UserAccountId}: {ErrorMessage}", 
-                    anonymousAccountId, userAccountId, ex.Message);
-                response.AddError("Failed to merge anonymous account data.");
-            }
-
-            return response;
         }
 
         public async Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal)
@@ -397,7 +286,7 @@ namespace NutritionAmbition.Backend.API.Services
             return response;
         }
 
-        public async Task<AssistantRunMessageResponse> RunAssistantConversationAsync(string accountId, string message)
+        public async Task<AssistantRunMessageResponse> RunAssistantConversationAsync(string accountId, string message, int? timezoneOffsetMinutes = null)
         {
             var response = new AssistantRunMessageResponse();
             
@@ -422,6 +311,9 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
+                // Check if this is a daily check-in request
+                bool isDailyCheckIn = string.Equals(message, ConversationConstants.DAILY_CHECKIN, StringComparison.OrdinalIgnoreCase);
+                
                 // 1. Get or create today's thread for the user
                 var threadResponse = await _threadService.GetTodayThreadAsync(accountId);
                 
@@ -435,30 +327,40 @@ namespace NutritionAmbition.Backend.API.Services
                 string threadId = threadResponse.ThreadId;
                 _logger.LogInformation("Using thread {ThreadId} for account {AccountId}", threadId, accountId);
 
-                // 2. Append the user message to the thread
+                // 2. Append the user message to the thread or system message for daily check-in
                 try 
                 {
-                    await _openAiService.AppendMessageToThreadAsync(threadId, message);
-                    _logger.LogInformation("Successfully appended user message to thread {ThreadId}", threadId);
+                    if (isDailyCheckIn)
+                    {
+                        // For daily check-in, append a system message with metadata
+                        await _openAiService.AppendSystemDailyCheckInAsync(accountId, threadId, timezoneOffsetMinutes);
+                        _logger.LogInformation("Successfully appended system daily check-in message to thread {ThreadId}", threadId);
+                    }
+                    else
+                    {
+                        // For regular user message, append user message and log it
+                        await _openAiService.AppendMessageToThreadAsync(threadId, message);
+                        _logger.LogInformation("Successfully appended user message to thread {ThreadId}", threadId);
+                        
+                        // Log the user message to the chat history
+                        var logUserMessageRequest = new LogChatMessageRequest
+                        {
+                            Content = message,
+                            Role = "user"
+                        };
+                        
+                        var logUserResult = await LogMessageAsync(accountId, logUserMessageRequest);
+                        if (!logUserResult.IsSuccess)
+                        {
+                            _logger.LogWarning("Failed to log user message for account {AccountId}, but continuing conversation", accountId);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error appending message to thread {ThreadId} for account {AccountId}", threadId, accountId);
                     response.AddError("Failed to send your message to the assistant.");
                     return response;
-                }
-                
-                // Log the user message to the chat history
-                var logUserMessageRequest = new LogChatMessageRequest
-                {
-                    Content = message,
-                    Role = "user"
-                };
-                
-                var logUserResult = await LogMessageAsync(accountId, logUserMessageRequest);
-                if (!logUserResult.IsSuccess)
-                {
-                    _logger.LogWarning("Failed to log user message for account {AccountId}, but continuing conversation", accountId);
                 }
 
                 // 3. Start a run with the assistant
@@ -595,8 +497,9 @@ namespace NutritionAmbition.Backend.API.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in assistant conversation for account {AccountId}: {ErrorMessage}", accountId, ex.Message);
-                response.AddError($"Error in conversation: {ex.Message}");
+                _logger.LogError(ex, "Error in assistant conversation for account {AccountId}: {ErrorMessage}", 
+                    accountId, ex.Message);
+                response.AddError("An error occurred while processing your conversation with the assistant.");
             }
 
             return response;

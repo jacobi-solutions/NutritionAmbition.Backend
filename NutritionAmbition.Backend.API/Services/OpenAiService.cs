@@ -32,6 +32,8 @@ namespace NutritionAmbition.Backend.API.Services
         Task<RunResponse> PollRunStatusAsync(string threadId, string runId, int maxAttempts = 0, int delayMs = 0);
         Task<RunResponse> SubmitToolOutputsAsync(string threadId, string runId, List<Models.ToolOutput> toolOutputs);
         Task<List<Models.ThreadMessage>> GetRunMessagesAsync(string threadId, string runId);
+        Task<string> GetInitialMessageAsync(string accountId, bool hasUserProfile, bool hasGoals, string localDate, int timezoneOffsetMinutes);
+        Task<string> AppendSystemDailyCheckInAsync(string accountId, string threadId, int? timezoneOffsetMinutes);
     }
 
     public class OpenAiService : IOpenAiService
@@ -40,32 +42,8 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly HttpClient _httpClient;
         private readonly OpenAiSettings _openAiSettings;
         private readonly OpenAIClient _openAiClient;
-
-        /// <summary>
-        /// Returns the definition for the LogMealTool function that can be used with OpenAI Assistants
-        /// </summary>
-        /// <returns>A function definition for logging meals</returns>
-        public static OpenAIFunctionDefinition GetLogMealToolDefinition()
-        {
-            return new OpenAIFunctionDefinition
-            {
-                Name = AssistantToolTypes.LogMealTool,
-                Description = "Log a user's meal based on a natural language description",
-                Parameters = new FunctionParameters
-                {
-                    Type = "object",
-                    Properties = new Dictionary<string, PropertyDefinition>
-                    {
-                        ["meal"] = new PropertyDefinition
-                        {
-                            Type = "string",
-                            Description = "A description of the user's meal, such as '2 eggs and toast with orange juice'"
-                        }
-                    },
-                    Required = new List<string> { "meal" }
-                }
-            };
-        }
+        private readonly IAccountsService _accountsService;
+        private readonly IDailyGoalService _dailyGoalService;
 
         /// <summary>
         /// Initializes a new instance of the OpenAiService class
@@ -74,12 +52,22 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="httpClient">HttpClient for making API calls</param>
         /// <param name="openAiSettings">Configuration settings for OpenAI</param>
         /// <param name="openAiClient">The OpenAI SDK client</param>
-        public OpenAiService(ILogger<OpenAiService> logger, HttpClient httpClient, OpenAiSettings openAiSettings, OpenAIClient openAiClient)
+        /// <param name="accountsService">Service for account operations</param>
+        /// <param name="dailyGoalService">Service for daily goals</param>
+        public OpenAiService(
+            ILogger<OpenAiService> logger, 
+            HttpClient httpClient, 
+            OpenAiSettings openAiSettings, 
+            OpenAIClient openAiClient,
+            IAccountsService accountsService,
+            IDailyGoalService dailyGoalService)
         {
             _logger = logger;
             _httpClient = httpClient;
             _openAiSettings = openAiSettings;
             _openAiClient = openAiClient;
+            _accountsService = accountsService;
+            _dailyGoalService = dailyGoalService;
             
             // Configure the HTTP client with the API key from configuration
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _openAiSettings.ApiKey);
@@ -211,8 +199,6 @@ namespace NutritionAmbition.Backend.API.Services
                 throw; // Re-throw to propagate the exception
             }
         }
-
-       
 
         /// <summary>
         /// Selects the best matching branded food item from a list of branded foods
@@ -857,6 +843,148 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting messages for run {RunId} on thread {ThreadId}", runId, threadId);
+                throw;
+            }
+        }
+
+        public async Task<string> GetInitialMessageAsync(string accountId, bool hasUserProfile, bool hasGoals, string localDate, int timezoneOffsetMinutes)
+        {
+            try
+            {
+                _logger.LogInformation("Getting initial message via Assistants API for account {AccountId}", accountId);
+
+                // 1. Check if thread exists for today; if not, create a new one
+                var threadId = await CreateNewThreadAsync();
+
+                // 2. Append system message with context
+                var metadata = new
+                {
+                    hasUserProfile,
+                    hasGoals,
+                    localDate,
+                    timezoneOffsetMinutes
+                };
+
+                var systemMessage = "dailyCheckIn";
+                var metadataString = JsonSerializer.Serialize(metadata);
+                _logger.LogInformation("Sending system message with metadata: {Metadata}", metadataString);
+                
+                await AppendMessageToThreadAsync(threadId, systemMessage, "system");
+
+                // 3. Start the run with the assistant
+                var runId = await StartRunAsync(threadId, _openAiSettings.AssistantId);
+
+                // 4. Poll until the run completes
+                var runResponse = await PollRunStatusAsync(threadId, runId);
+
+                if (runResponse.Status != "completed")
+                {
+                    _logger.LogWarning("Run did not complete successfully. Status: {Status}", runResponse.Status);
+                    return "Hello! I'm your nutrition assistant. How can I help you today?";
+                }
+
+                // 5. Get the assistant's reply
+                var messages = await GetRunMessagesAsync(threadId, runId);
+                var assistantMessages = messages
+                    .Where(m => m.Role.ToLower() == "assistant")
+                    .OrderByDescending(m => m.CreatedAt)
+                    .ToList();
+
+                if (assistantMessages.Count == 0 || !assistantMessages[0].Content.Any())
+                {
+                    _logger.LogWarning("No assistant messages found in the run");
+                    return "Hello! I'm your nutrition assistant. How can I help you today?";
+                }
+
+                var assistantMessage = assistantMessages[0].Content
+                    .FirstOrDefault(c => c.Type == "text")?.Text?.Value ?? 
+                    "Hello! I'm your nutrition assistant. How can I help you today?";
+
+                _logger.LogInformation("Successfully retrieved initial message from assistant for account {AccountId}", accountId);
+                return assistantMessage;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting initial message from assistant for account {AccountId}", accountId);
+                return "Hello! I'm your nutrition assistant. How can I help you today?";
+            }
+        }
+
+        public async Task<string> AppendSystemDailyCheckInAsync(string accountId, string threadId, int? timezoneOffsetMinutes)
+        {
+            try
+            {
+                _logger.LogInformation("Appending system daily check-in message for account {AccountId} to thread {ThreadId}", 
+                    accountId, threadId);
+                
+                if (string.IsNullOrEmpty(accountId))
+                {
+                    throw new ArgumentException("Account ID is required", nameof(accountId));
+                }
+                
+                if (string.IsNullOrEmpty(threadId))
+                {
+                    throw new ArgumentException("Thread ID is required", nameof(threadId));
+                }
+                
+                // Fetch account info to determine if user has profile
+                bool hasUserProfile = false;
+                bool hasGoals = false;
+                
+                // Get account information from AccountsService to check if user has profile
+                try
+                {
+                    var account = await _accountsService.GetAccountByIdAsync(accountId);
+                    hasUserProfile = account?.UserProfile != null;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error checking user profile for account {AccountId}, continuing with hasUserProfile=false", accountId);
+                    // Continue with hasUserProfile = false
+                }
+
+                // Check if user has goals from DailyGoalService
+                try
+                {
+                    var dailyGoal = await _dailyGoalService.GetOrGenerateTodayGoalAsync(accountId);
+                    hasGoals = dailyGoal != null;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error checking goals for account {AccountId}, continuing with hasGoals=false", accountId);
+                    // Continue with hasGoals = false
+                }
+
+                // Calculate local date using timezone offset
+                int tzOffset = timezoneOffsetMinutes ?? 0; // Default to UTC if no timezone provided
+                DateTime localDateTime = DateTime.UtcNow.AddMinutes(tzOffset);
+                string localDate = localDateTime.ToString("yyyy-MM-dd");
+
+                // Create metadata JSON
+                var metadata = new
+                {
+                    accountId,
+                    hasUserProfile,
+                    hasGoals,
+                    localDate,
+                    timezoneOffsetMinutes = tzOffset
+                };
+
+                // Serialize the metadata
+                var metadataJson = JsonSerializer.Serialize(metadata);
+                _logger.LogInformation("Daily check-in metadata: {Metadata}", metadataJson);
+
+                // Send the system message with metadata
+                var messageId = await AppendMessageToThreadAsync(threadId, metadataJson, "system");
+                _logger.LogInformation("Successfully appended system daily check-in message (ID: {MessageId}) for account {AccountId}", 
+                    messageId, accountId);
+                
+                return messageId;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error appending system daily check-in message for account {AccountId} to thread {ThreadId}", 
+                    accountId, threadId);
                 throw;
             }
         }

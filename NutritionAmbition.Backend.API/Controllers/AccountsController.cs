@@ -1,18 +1,22 @@
 using Microsoft.AspNetCore.Mvc;
 using NutritionAmbition.Backend.API;
+using NutritionAmbition.Backend.API.Attributes;
 using NutritionAmbition.Backend.API.DataContracts;
+using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Services;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
-    public class AuthController : ControllerBase
+    [Route("api/accounts")]
+    public class AccountsController : ControllerBase
     {
-        private readonly AccountsService _accountsService;
-        private readonly ILogger<AuthController> _logger;
+        private readonly IAccountsService _accountsService;
+        private readonly ILogger<AccountsController> _logger;
 
-        public AuthController(AccountsService accountsService, ILogger<AuthController> logger)
+        public AccountsController(IAccountsService accountsService, ILogger<AccountsController> logger)
         {
             _accountsService = accountsService;
             _logger = logger;
@@ -40,5 +44,29 @@ namespace NutritionAmbition.Backend.API.Controllers
             _logger.LogInformation("User registered successfully.");
             return Ok(response);
         }
+
+        [HttpPost("MergeAnonymousAccount")]
+        [FlexibleAuthorize]
+        public async Task<ActionResult<MergeAnonymousAccountResponse>> MergeAnonymousAccount([FromBody] MergeAnonymousAccountRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var user = HttpContext.Items["Account"] as Account;
+            if (user == null)
+            {
+                return Unauthorized();
+            }
+
+            var response = await _accountsService.MergeAnonymousAccountAsync(request.AnonymousAccountId, user.Id);
+            if (!response.IsSuccess)
+            {
+                return BadRequest(response);
+            }
+            
+            return Ok(response);
+        }
     }
-}
+} 

@@ -15,15 +15,18 @@ namespace NutritionAmbition.Backend.API.Controllers
     public class FoodEntryController : ControllerBase
     {
         private readonly IFoodEntryService _foodEntryService;
-        private readonly AccountsService _accountsService;
+        private readonly IOpenAiService _openAiService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<FoodEntryController> _logger;
 
         public FoodEntryController(
-            IFoodEntryService foodEntryService, 
-            AccountsService accountsService,
+            IFoodEntryService foodEntryService,
+            IOpenAiService openAiService,
+            IAccountsService accountsService,
             ILogger<FoodEntryController> logger)
         {
             _foodEntryService = foodEntryService;
+            _openAiService = openAiService;
             _accountsService = accountsService;
             _logger = logger;
         }

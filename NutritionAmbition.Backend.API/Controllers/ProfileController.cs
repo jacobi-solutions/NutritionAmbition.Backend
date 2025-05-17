@@ -21,15 +21,15 @@ namespace NutritionAmbition.Backend.API.Controllers
             _logger = logger;
         }
 
-        [HttpPost("SaveProfileAndGoals")]
-        public async Task<ActionResult<SaveProfileAndGoalsResponse>> SaveProfileAndGoals([FromBody] SaveProfileAndGoalsRequest request)
+        [HttpPost("SaveUserProfile")]
+        public async Task<ActionResult<SaveUserProfileResponse>> SaveUserProfile([FromBody] SaveUserProfileRequest request)
         {
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            var response = await _profileService.SaveProfileAndGoalsAsync(request);
+            var response = await _profileService.SaveUserProfileAsync(request);
             
             if (response.IsSuccess)
             {

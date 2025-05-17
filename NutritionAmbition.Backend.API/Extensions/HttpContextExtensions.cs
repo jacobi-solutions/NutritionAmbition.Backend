@@ -18,7 +18,7 @@ namespace NutritionAmbition.Backend.API.Extensions
         /// <param name="context">The HttpContext</param>
         /// <param name="accountsService">The AccountsService</param>
         /// <returns>The Account if found, otherwise null</returns>
-        public static async Task<Account> GetAccountFromContextAsync(this HttpContext context, AccountsService accountsService)
+        public static async Task<Account> GetAccountFromContextAsync(this HttpContext context, IAccountsService accountsService)
         {
             var logger = context.RequestServices.GetRequiredService<ILogger<FlexibleAuthorizeAttribute>>();
 

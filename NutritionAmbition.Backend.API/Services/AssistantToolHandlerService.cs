@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.Constants;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Models;
+using NutritionAmbition.Backend.API.DataContracts.Profile;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -39,10 +40,14 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     case AssistantToolTypes.LogMealTool:
                         return await HandleLogMealToolAsync(accountId, toolInput);
-                    case AssistantToolTypes.SaveProfileAndGoalsTool:
-                        return await HandleSaveProfileAndGoalsToolAsync(accountId, toolInput);
+                    case AssistantToolTypes.SaveUserProfileTool:
+                        return await HandleSaveUserProfileToolAsync(accountId, toolInput);
                     case AssistantToolTypes.GetProfileAndGoalsTool:
                         return await HandleGetProfileAndGoalsToolAsync(accountId, toolInput);
+                    case AssistantToolTypes.SetDefaultGoalProfileTool:
+                        return await HandleSetDefaultGoalProfileToolAsync(accountId, toolInput);
+                    case AssistantToolTypes.OverrideDailyGoalsTool:
+                        return await HandleOverrideDailyGoalsToolAsync(accountId, toolInput);
                     default:
                         _logger.LogWarning("Unknown tool call: {ToolName}", toolName);
                         return JsonSerializer.Serialize(new { error = $"Unknown tool: {toolName}" });
@@ -87,16 +92,14 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        private async Task<string> HandleSaveProfileAndGoalsToolAsync(string accountId, string toolInput)
+        private async Task<string> HandleSaveUserProfileToolAsync(string accountId, string toolInput)
         {
             try
             {
-                // Parse the input JSON
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 var request = JsonSerializer.Deserialize<dynamic>(toolInput, options);
 
-                // Create a request object from the dynamic data
-                var profileRequest = new DataContracts.Profile.SaveProfileAndGoalsRequest
+                var profileRequest = new DataContracts.Profile.SaveUserProfileRequest
                 {
                     AccountId = accountId,
                     Age = Convert.ToInt32(request.GetProperty("age")),
@@ -106,20 +109,17 @@ namespace NutritionAmbition.Backend.API.Services
                     ActivityLevel = request.GetProperty("activityLevel").GetString()
                 };
 
-                // Call the service to process the profile and goals
-                var response = await _assistantToolService.SaveProfileAndGoalsToolAsync(profileRequest);
-
-                // Return the serialized response
+                var response = await _assistantToolService.SaveUserProfileToolAsync(profileRequest);
                 return JsonSerializer.Serialize(response);
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex, "Error parsing SaveProfileAndGoalsTool input: {ToolInput}", toolInput);
+                _logger.LogError(ex, "Error parsing SaveUserProfileTool input: {ToolInput}", toolInput);
                 return JsonSerializer.Serialize(new { error = "Invalid input format" });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing SaveProfileAndGoalsTool request");
+                _logger.LogError(ex, "Error processing SaveUserProfileTool request");
                 return JsonSerializer.Serialize(new { error = $"Error processing profile data: {ex.Message}" });
             }
         }
@@ -138,6 +138,72 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogError(ex, "Error processing GetProfileAndGoalsTool request");
                 return JsonSerializer.Serialize(new { error = $"Error retrieving profile data: {ex.Message}" });
+            }
+        }
+        
+        private async Task<string> HandleSetDefaultGoalProfileToolAsync(string accountId, string toolInput)
+        {
+            try
+            {
+                // Parse the input JSON
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var request = JsonSerializer.Deserialize<dynamic>(toolInput, options);
+
+                // Create a request object from the dynamic data
+                var profileRequest = new SetDefaultGoalProfileRequest
+                {
+                    AccountId = accountId,
+                    BaseCalories = Convert.ToDouble(request.GetProperty("baseCalories"))
+                };
+
+                // Call the service to process the default goal profile
+                var response = await _assistantToolService.SetDefaultGoalProfileToolAsync(profileRequest);
+
+                // Return the serialized response
+                return JsonSerializer.Serialize(response);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Error parsing SetDefaultGoalProfileTool input: {ToolInput}", toolInput);
+                return JsonSerializer.Serialize(new { error = "Invalid input format" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing SetDefaultGoalProfileTool request");
+                return JsonSerializer.Serialize(new { error = $"Error setting default goal profile: {ex.Message}" });
+            }
+        }
+
+        private async Task<string> HandleOverrideDailyGoalsToolAsync(string accountId, string toolInput)
+        {
+            try
+            {
+                // Parse the input JSON
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var request = JsonSerializer.Deserialize<dynamic>(toolInput, options);
+
+                // Create a request object from the dynamic data
+                var profileRequest = new OverrideDailyGoalsRequest
+                {
+                    AccountId = accountId,
+                    NewBaseCalories = Convert.ToDouble(request.GetProperty("newBaseCalories"))
+                };
+
+                // Call the service to process the daily goals override
+                var response = await _assistantToolService.OverrideDailyGoalsToolAsync(profileRequest);
+
+                // Return the serialized response
+                return JsonSerializer.Serialize(response);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Error parsing OverrideDailyGoalsTool input: {ToolInput}", toolInput);
+                return JsonSerializer.Serialize(new { error = "Invalid input format" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing OverrideDailyGoalsTool request");
+                return JsonSerializer.Serialize(new { error = $"Error overriding daily goals: {ex.Message}" });
             }
         }
     }

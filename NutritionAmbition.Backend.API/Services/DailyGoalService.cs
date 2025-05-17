@@ -5,6 +5,7 @@ using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Repositories;
 using System;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -12,20 +13,24 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<GetDailyGoalResponse> GetForDateAsync(string accountId, GetDailyGoalRequest request);
         Task<SetDailyGoalResponse> SetGoalsAsync(string accountId, SetDailyGoalRequest request);
+        Task<DailyGoal> GetOrGenerateTodayGoalAsync(string accountId);
     }
 
     public class DailyGoalService : IDailyGoalService
     {
         private readonly DailyGoalRepository _dailyGoalRepository;
+        private readonly DefaultGoalProfileRepository _defaultGoalProfileRepository;
         private readonly IGoalScaffoldingService _goalScaffoldingService;
         private readonly ILogger<DailyGoalService> _logger;
         
         public DailyGoalService(
             DailyGoalRepository dailyGoalRepository, 
+            DefaultGoalProfileRepository defaultGoalProfileRepository,
             IGoalScaffoldingService goalScaffoldingService,
             ILogger<DailyGoalService> logger)
         {
             _dailyGoalRepository = dailyGoalRepository;
+            _defaultGoalProfileRepository = defaultGoalProfileRepository;
             _goalScaffoldingService = goalScaffoldingService;
             _logger = logger;
         }
@@ -94,6 +99,31 @@ namespace NutritionAmbition.Backend.API.Services
             }
             
             return response;
+        }
+
+        public async Task<DailyGoal> GetOrGenerateTodayGoalAsync(string accountId)
+        {
+            var today = DateTime.UtcNow.Date;
+            var existingGoal = await _dailyGoalRepository.GetByAccountIdAndDateAsync(accountId, today);
+            if (existingGoal != null)
+                return existingGoal;
+
+            var defaultProfile = await _defaultGoalProfileRepository.GetByAccountIdAsync(accountId);
+            var baseCalories = defaultProfile?.BaseCalories ?? 2000;
+            var nutrientGoals = defaultProfile?.NutrientGoals != null && defaultProfile.NutrientGoals.Any()
+                ? defaultProfile.NutrientGoals
+                : _goalScaffoldingService.GenerateNutrientGoals(baseCalories);
+
+            var todayGoal = new DailyGoal
+            {
+                AccountId = accountId,
+                EffectiveDateUtc = today,
+                BaseCalories = baseCalories,
+                NutrientGoals = nutrientGoals
+            };
+
+            await _dailyGoalRepository.CreateAsync(todayGoal);
+            return todayGoal;
         }
 
         private DailyGoal CreateDefaultDailyGoal(string accountId, DateTime effectiveDate)

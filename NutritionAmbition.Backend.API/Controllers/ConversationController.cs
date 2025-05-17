@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.Attributes;
+using NutritionAmbition.Backend.API.Constants;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Extensions;
 using NutritionAmbition.Backend.API.Models;
@@ -17,41 +18,17 @@ namespace NutritionAmbition.Backend.API.Controllers
     public class ConversationController : ControllerBase
     {
         private readonly IConversationService _conversationService;
-        private readonly AccountsService _accountsService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<ConversationController> _logger;
 
         public ConversationController(
             IConversationService conversationService,
-            AccountsService accountsService,
+            IAccountsService accountsService,
             ILogger<ConversationController> logger)
         {
             _conversationService = conversationService;
             _accountsService = accountsService;
             _logger = logger;
-        }
-
-        [HttpPost("MergeAnonymousAccount")]
-        [FlexibleAuthorize]
-        public async Task<ActionResult<MergeAnonymousAccountResponse>> MergeAnonymousAccount([FromBody] MergeAnonymousAccountRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var user = HttpContext.Items["Account"] as Account;
-            if (user == null)
-            {
-                return Unauthorized();
-            }
-
-            var response = await _conversationService.MergeAnonymousAccountAsync(request.AnonymousAccountId, user.Id);
-            if (!response.IsSuccess)
-            {
-                return BadRequest(response);
-            }
-            
-            return Ok(response);
         }
 
         [HttpPost("GetInitialMessage")]
@@ -68,14 +45,36 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized("User account not found");
             }
 
-            var response = await _conversationService.GetInitialMessageAsync(
-                account.Id,
-                request.LastLoggedDate,
-                request.HasLoggedFirstMeal);
-
-            if (!response.IsSuccess)
+            // Check if timezone offset is provided
+            if (request.TimezoneOffsetMinutes.HasValue)
             {
-                return BadRequest(response);
+                _logger.LogInformation("Using client-provided timezone offset: {TimezoneOffsetMinutes} minutes", request.TimezoneOffsetMinutes.Value);
+            }
+
+            // Call the RunAssistantConversationAsync with daily check-in trigger
+            var assistantResponse = await _conversationService.RunAssistantConversationAsync(
+                account.Id, 
+                ConversationConstants.DAILY_CHECKIN, 
+                request.TimezoneOffsetMinutes);
+
+            if (!assistantResponse.IsSuccess)
+            {
+                return BadRequest(assistantResponse);
+            }
+
+            // Map the AssistantRunMessageResponse to BotMessageResponse to maintain API compatibility
+            var response = new BotMessageResponse
+            {
+                Message = assistantResponse.AssistantMessage,
+                IsSuccess = assistantResponse.IsSuccess
+            };
+
+            if (assistantResponse.Errors != null)
+            {
+                foreach (var error in assistantResponse.Errors)
+                {
+                    response.AddError(error.ErrorMessage, error.ErrorCode);
+                }
             }
 
             return Ok(response);
@@ -248,7 +247,13 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized("User account not found");
             }
 
-            var response = await _conversationService.RunAssistantConversationAsync(account.Id, request.Message);
+            // Check if timezone offset is provided
+            if (request.TimezoneOffsetMinutes.HasValue)
+            {
+                _logger.LogInformation("Using client-provided timezone offset: {TimezoneOffsetMinutes} minutes", request.TimezoneOffsetMinutes.Value);
+            }
+
+            var response = await _conversationService.RunAssistantConversationAsync(account.Id, request.Message, request.TimezoneOffsetMinutes);
 
             if (!response.IsSuccess)
             {

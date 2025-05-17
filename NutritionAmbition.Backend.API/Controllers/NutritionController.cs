@@ -17,13 +17,13 @@ namespace NutritionAmbition.Backend.API.Controllers
         private readonly INutritionService _nutritionService;
         private readonly IDailySummaryService _dailySummaryService;
         private readonly IOpenAiService _openAiService;
-        private readonly AccountsService _accountsService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<NutritionController> _logger;
 
         public NutritionController(
             INutritionService nutritionService,
             IOpenAiService openAiService,
-            AccountsService accountsService,
+            IAccountsService accountsService,
             ILogger<NutritionController> logger,
             IDailySummaryService dailySummaryService)
         {

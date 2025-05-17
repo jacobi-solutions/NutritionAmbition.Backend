@@ -13,12 +13,12 @@ namespace NutritionAmbition.Backend.API.Controllers
     public class DetailedSummaryController : ControllerBase
     {
         private readonly IDetailedSummaryService _detailedSummaryService;
-        private readonly AccountsService _accountsService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<DetailedSummaryController> _logger;
 
         public DetailedSummaryController(
             IDetailedSummaryService detailedSummaryService,
-            AccountsService accountsService,
+            IAccountsService accountsService,
             ILogger<DetailedSummaryController> logger)
         {
             _detailedSummaryService = detailedSummaryService;

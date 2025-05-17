@@ -6,29 +6,41 @@ using NutritionAmbition.Backend.API.DataContracts.Profile;
 using NutritionAmbition.Backend.API.Models;
 using System.Linq;
 using NutritionAmbition.Backend.API.Constants;
+using NutritionAmbition.Backend.API.Repositories;
 
 namespace NutritionAmbition.Backend.API.Services
 {
     public interface IAssistantToolService
     {
         Task<LogMealToolResponse> LogMealToolAsync(string accountId, string meal);
-        Task<SaveProfileAndGoalsResponse> SaveProfileAndGoalsToolAsync(SaveProfileAndGoalsRequest request);
         Task<GetProfileAndGoalsResponse> GetProfileAndGoalsToolAsync(string accountId);
+        Task<SetDefaultGoalProfileResponse> SetDefaultGoalProfileToolAsync(SetDefaultGoalProfileRequest request);
+        Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(OverrideDailyGoalsRequest request);
+        Task<SaveUserProfileResponse> SaveUserProfileToolAsync(SaveUserProfileRequest request);
     }
 
     public class AssistantToolService : IAssistantToolService
     {
         private readonly INutritionService _nutritionService;
         private readonly IProfileService _profileService;
+        private readonly DefaultGoalProfileRepository _defaultGoalProfileRepository;
+        private readonly DailyGoalRepository _dailyGoalRepository;
+        private readonly IGoalScaffoldingService _goalScaffoldingService;
         private readonly ILogger<AssistantToolService> _logger;
 
         public AssistantToolService(
             INutritionService nutritionService,
             IProfileService profileService,
+            DefaultGoalProfileRepository defaultGoalProfileRepository,
+            DailyGoalRepository dailyGoalRepository,
+            IGoalScaffoldingService goalScaffoldingService,
             ILogger<AssistantToolService> logger)
         {
             _nutritionService = nutritionService;
             _profileService = profileService;
+            _defaultGoalProfileRepository = defaultGoalProfileRepository;
+            _dailyGoalRepository = dailyGoalRepository;
+            _goalScaffoldingService = goalScaffoldingService;
             _logger = logger;
         }
 
@@ -80,14 +92,86 @@ namespace NutritionAmbition.Backend.API.Services
             return response;
         }
 
-        public async Task<SaveProfileAndGoalsResponse> SaveProfileAndGoalsToolAsync(SaveProfileAndGoalsRequest request)
+        public async Task<GetProfileAndGoalsResponse> GetProfileAndGoalsToolAsync(string accountId)
+        {
+            _logger.LogInformation("AssistantToolService: Getting profile and goals for account {AccountId}", accountId);
+            
+            var request = new GetProfileAndGoalsRequest
+            {
+                AccountId = accountId
+            };
+            
+            return await _profileService.GetProfileAndGoalsAsync(request);
+        }
+
+        public async Task<SetDefaultGoalProfileResponse> SetDefaultGoalProfileToolAsync(SetDefaultGoalProfileRequest request)
+        {
+            var response = new SetDefaultGoalProfileResponse();
+
+            try
+            {
+                var defaultProfile = new DefaultGoalProfile
+                {
+                    AccountId = request.AccountId,
+                    BaseCalories = request.BaseCalories,
+                    NutrientGoals = _goalScaffoldingService.GenerateNutrientGoals(request.BaseCalories)
+                };
+
+                var success = await _defaultGoalProfileRepository.UpsertAsync(defaultProfile);
+
+                if (!success)
+                {
+                    response.AddError("Failed to save default profile.");
+                    return response;
+                }
+
+                response.IsSuccess = true;
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in SetDefaultGoalProfileToolAsync for account {AccountId}", request.AccountId);
+                response.AddError("An unexpected error occurred.");
+                return response;
+            }
+        }
+
+        public async Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(OverrideDailyGoalsRequest request)
+        {
+            var response = new OverrideDailyGoalsResponse();
+
+            try
+            {
+                var nutrientGoals = _goalScaffoldingService.GenerateNutrientGoals(request.NewBaseCalories);
+
+                var goal = new DailyGoal
+                {
+                    AccountId = request.AccountId,
+                    EffectiveDateUtc = DateTime.UtcNow.Date,
+                    BaseCalories = request.NewBaseCalories,
+                    NutrientGoals = nutrientGoals
+                };
+
+                await _dailyGoalRepository.UpsertAsync(goal);
+                response.IsSuccess = true;
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error overriding daily goals for account {AccountId}", request.AccountId);
+                response.AddError("Failed to override today's goals.");
+                return response;
+            }
+        }
+
+        public async Task<SaveUserProfileResponse> SaveUserProfileToolAsync(SaveUserProfileRequest request)
         {
             _logger.LogInformation("Processing assistant profile/goals creation request for account {AccountId}", request.AccountId);
             
             try
             {
                 // Delegate to the profile service
-                var response = await _profileService.SaveProfileAndGoalsAsync(request);
+                var response = await _profileService.SaveUserProfileAsync(request);
                 
                 if (response.IsSuccess)
                 {
@@ -104,22 +188,10 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating profile and goals for account {AccountId}", request.AccountId);
-                var errorResponse = new SaveProfileAndGoalsResponse();
+                var errorResponse = new SaveUserProfileResponse();
                 errorResponse.AddError($"Failed to create profile and goals: {ex.Message}");
                 return errorResponse;
             }
-        }
-
-        public async Task<GetProfileAndGoalsResponse> GetProfileAndGoalsToolAsync(string accountId)
-        {
-            _logger.LogInformation("AssistantToolService: Getting profile and goals for account {AccountId}", accountId);
-            
-            var request = new GetProfileAndGoalsRequest
-            {
-                AccountId = accountId
-            };
-            
-            return await _profileService.GetProfileAndGoalsAsync(request);
         }
 
         private MealType DetermineMealType(string mealDescription)

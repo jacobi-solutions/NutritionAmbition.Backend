@@ -17,12 +17,12 @@ namespace NutritionAmbition.Backend.API.Controllers
     public class AssistantToolController : ControllerBase
     {
         private readonly IAssistantToolService _assistantToolService;
-        private readonly AccountsService _accountsService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<AssistantToolController> _logger;
 
         public AssistantToolController(
             IAssistantToolService assistantToolService,
-            AccountsService accountsService,
+            IAccountsService accountsService,
             ILogger<AssistantToolController> logger)
         {
             _assistantToolService = assistantToolService;
@@ -61,8 +61,8 @@ namespace NutritionAmbition.Backend.API.Controllers
             return Ok(response);
         }
 
-        [HttpPost(nameof(AssistantToolTypes.SaveProfileAndGoalsTool))]
-        public async Task<ActionResult<SaveProfileAndGoalsResponse>> SaveProfileAndGoalsTool([FromBody] SaveProfileAndGoalsRequest request)
+        [HttpPost(nameof(AssistantToolTypes.SaveUserProfileTool))]
+        public async Task<ActionResult<SaveUserProfileResponse>> SaveUserProfileTool([FromBody] SaveUserProfileRequest request)
         {
             if (!ModelState.IsValid)
             {
@@ -73,20 +73,20 @@ namespace NutritionAmbition.Backend.API.Controllers
             var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
-                _logger.LogWarning("Unauthorized access attempt to SaveProfileAndGoalsTool endpoint");
+                _logger.LogWarning("Unauthorized access attempt to SaveUserProfileTool endpoint");
                 return Unauthorized("User account not found");
             }
 
             // Override accountId in the request with the authenticated user's account ID
             request.AccountId = account.Id;
 
-            _logger.LogInformation("Assistant requested profile and goals creation for account {AccountId}", account.Id);
+            _logger.LogInformation("Assistant requested profile creation for account {AccountId}", account.Id);
 
-            var response = await _assistantToolService.SaveProfileAndGoalsToolAsync(request);
+            var response = await _assistantToolService.SaveUserProfileToolAsync(request);
 
             if (!response.IsSuccess)
             {
-                _logger.LogWarning("Failed to create profile and goals for account {AccountId}: {Errors}", 
+                _logger.LogWarning("Failed to create profile for account {AccountId}: {Errors}", 
                     account.Id, string.Join(", ", response.Errors.Select(e => e.ErrorMessage)));
                 return BadRequest(response);
             }
@@ -124,6 +124,73 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(response);
             }
             
+            return Ok(response);
+        }
+
+        [HttpPost(nameof(AssistantToolTypes.SetDefaultGoalProfileTool))]
+        public async Task<ActionResult<SetDefaultGoalProfileResponse>> SetDefaultGoalProfileTool([FromBody] SetDefaultGoalProfileRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            // Get account from context (supports both Firebase and anonymous auth)
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+            if (account == null)
+            {
+                _logger.LogWarning("Unauthorized access attempt to SetDefaultGoalProfileTool endpoint");
+                return Unauthorized("User account not found");
+            }
+
+            // Override accountId in the request with the authenticated user's account ID
+            request.AccountId = account.Id;
+
+            _logger.LogInformation("Assistant requested default goal profile update for account {AccountId}", account.Id);
+
+            var response = await _assistantToolService.SetDefaultGoalProfileToolAsync(request);
+
+            if (!response.IsSuccess)
+            {
+                _logger.LogWarning("Failed to set default goal profile for account {AccountId}: {Errors}", 
+                    account.Id, string.Join(", ", response.Errors.Select(e => e.ErrorMessage)));
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
+
+        [HttpPost(nameof(AssistantToolTypes.OverrideDailyGoalsTool))]
+        public async Task<ActionResult<OverrideDailyGoalsResponse>> OverrideDailyGoalsTool([FromBody] OverrideDailyGoalsRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            // Get account from context (supports both Firebase and anonymous auth)
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+            if (account == null)
+            {
+                _logger.LogWarning("Unauthorized access attempt to OverrideDailyGoalsTool endpoint");
+                return Unauthorized("User account not found");
+            }
+
+            // Override accountId in the request with the authenticated user's account ID
+            request.AccountId = account.Id;
+
+            _logger.LogInformation("Assistant requested daily goals override for account {AccountId} to {Calories} calories", 
+                account.Id, request.NewBaseCalories);
+
+            var response = await _assistantToolService.OverrideDailyGoalsToolAsync(request);
+
+            if (!response.IsSuccess)
+            {
+                _logger.LogWarning("Failed to override daily goals for account {AccountId}: {Errors}", 
+                    account.Id, string.Join(", ", response.Errors.Select(e => e.ErrorMessage)));
+                return BadRequest(response);
+            }
+
             return Ok(response);
         }
     }

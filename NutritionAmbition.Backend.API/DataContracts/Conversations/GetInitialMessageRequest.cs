@@ -6,5 +6,6 @@ namespace NutritionAmbition.Backend.API.DataContracts
     {
         public DateTime? LastLoggedDate { get; set; }
         public bool HasLoggedFirstMeal { get; set; }
+        public int? TimezoneOffsetMinutes { get; set; }
     }
 } 

@@ -67,12 +67,15 @@ builder.Services.AddSingleton<IMongoClient>(mongoClient);
 builder.Services.AddSingleton<IMongoDatabase>(x => mongoClient.GetDatabase(mongoDbSettings.DatabaseName));
 
 // 🟢 Services
-builder.Services.AddSingleton<AccountsService>();
+builder.Services.AddSingleton<IAccountsService, AccountsService>();
 builder.Services.AddSingleton<IFoodEntryService, FoodEntryService>();
 
 // Register the DailyGoal service and repository
 builder.Services.AddSingleton<DailyGoalRepository>();
 builder.Services.AddSingleton<IDailyGoalService, DailyGoalService>();
+
+// Register the DefaultGoalProfileRepository
+builder.Services.AddSingleton<DefaultGoalProfileRepository>();
 
 // Register the Profile service
 builder.Services.AddSingleton<IProfileService, ProfileService>();
@@ -103,7 +106,7 @@ builder.Services.AddScoped<IAssistantToolHandlerService, AssistantToolHandlerSer
 builder.Services.AddHttpClient<NutritionixClient>();
 builder.Services.AddSingleton<NutritionixClient>();
 builder.Services.AddSingleton<INutritionixService, NutritionixService>();
-builder.Services.AddSingleton<INutritionService, NutritionService>();
+builder.Services.AddScoped<INutritionService, NutritionService>();
 
 // Register OpenAI SDK Client
 builder.Services.AddSingleton(sp => {
@@ -112,10 +115,10 @@ builder.Services.AddSingleton(sp => {
 
 // Register OpenAI Service with HttpClient
 builder.Services.AddHttpClient<IOpenAiService, OpenAiService>();
-builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
+builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 
 // Register Thread Service
-builder.Services.AddSingleton<IThreadService, ThreadService>();
+builder.Services.AddScoped<IThreadService, ThreadService>();
 
 // Repos
 builder.Services.AddSingleton<AccountsRepository>();

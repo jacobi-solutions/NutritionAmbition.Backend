@@ -13,12 +13,12 @@ namespace NutritionAmbition.Backend.API.Controllers
     public class ThreadController : ControllerBase
     {
         private readonly IThreadService _threadService;
-        private readonly AccountsService _accountsService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<ThreadController> _logger;
 
         public ThreadController(
             IThreadService threadService,
-            AccountsService accountsService,
+            IAccountsService accountsService,
             ILogger<ThreadController> logger)
         {
             _threadService = threadService;

@@ -14,12 +14,12 @@ namespace NutritionAmbition.Backend.API.Middleware
     public class AnonymousAuthMiddleware
     {
         private readonly RequestDelegate _next;
-        private readonly AccountsService _accountsService;
+        private readonly IAccountsService _accountsService;
         private readonly ILogger<AnonymousAuthMiddleware> _logger;
 
         public AnonymousAuthMiddleware(
             RequestDelegate next,
-            AccountsService accountsService,
+            IAccountsService accountsService,
             ILogger<AnonymousAuthMiddleware> logger)
         {
             _next = next;

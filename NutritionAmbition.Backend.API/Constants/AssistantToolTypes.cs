@@ -6,8 +6,10 @@ namespace NutritionAmbition.Backend.API.Constants
     public static class AssistantToolTypes
     {
         public const string LogMealTool = "LogMealTool";
-        public const string SaveProfileAndGoalsTool = "SaveProfileAndGoalsTool";
+        public const string SaveUserProfileTool = "SaveUserProfileTool";
         public const string GetProfileAndGoalsTool = "GetProfileAndGoalsTool";
+        public const string SetDefaultGoalProfileTool = "SetDefaultGoalProfileTool";
+        public const string OverrideDailyGoalsTool = "OverrideDailyGoalsTool";
         
         /// <summary>
         /// Checks if the provided tool name is a valid assistant tool
@@ -17,8 +19,10 @@ namespace NutritionAmbition.Backend.API.Constants
         public static bool IsValid(string toolName)
         {
             return toolName == LogMealTool || 
-                   toolName == SaveProfileAndGoalsTool || 
-                   toolName == GetProfileAndGoalsTool;
+                   toolName == SaveUserProfileTool || 
+                   toolName == GetProfileAndGoalsTool ||
+                   toolName == SetDefaultGoalProfileTool ||
+                   toolName == OverrideDailyGoalsTool;
         }
     }
 } 
