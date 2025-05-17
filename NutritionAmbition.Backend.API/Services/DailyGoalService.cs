@@ -14,6 +14,7 @@ namespace NutritionAmbition.Backend.API.Services
         Task<GetDailyGoalResponse> GetForDateAsync(string accountId, GetDailyGoalRequest request);
         Task<SetDailyGoalResponse> SetGoalsAsync(string accountId, SetDailyGoalRequest request);
         Task<DailyGoal> GetOrGenerateTodayGoalAsync(string accountId);
+        Task<DailyGoal?> GetGoalByDateAsync(string accountId, DateTime dateUtc);
     }
 
     public class DailyGoalService : IDailyGoalService
@@ -124,6 +125,11 @@ namespace NutritionAmbition.Backend.API.Services
 
             await _dailyGoalRepository.CreateAsync(todayGoal);
             return todayGoal;
+        }
+
+        public async Task<DailyGoal?> GetGoalByDateAsync(string accountId, DateTime dateUtc)
+        {
+            return await _dailyGoalRepository.GetByAccountIdAndDateAsync(accountId, dateUtc);
         }
 
         private DailyGoal CreateDefaultDailyGoal(string accountId, DateTime effectiveDate)

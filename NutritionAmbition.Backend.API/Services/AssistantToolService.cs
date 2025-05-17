@@ -17,6 +17,7 @@ namespace NutritionAmbition.Backend.API.Services
         Task<SetDefaultGoalProfileResponse> SetDefaultGoalProfileToolAsync(SetDefaultGoalProfileRequest request);
         Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(OverrideDailyGoalsRequest request);
         Task<SaveUserProfileResponse> SaveUserProfileToolAsync(SaveUserProfileRequest request);
+        Task<GetUserContextResponse> GetUserContextToolAsync(string accountId, int? timezoneOffsetMinutes);
     }
 
     public class AssistantToolService : IAssistantToolService
@@ -27,6 +28,8 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly DailyGoalRepository _dailyGoalRepository;
         private readonly IGoalScaffoldingService _goalScaffoldingService;
         private readonly ILogger<AssistantToolService> _logger;
+        private readonly IAccountsService _accountsService;
+        private readonly IDailyGoalService _dailyGoalService;
 
         public AssistantToolService(
             INutritionService nutritionService,
@@ -34,7 +37,9 @@ namespace NutritionAmbition.Backend.API.Services
             DefaultGoalProfileRepository defaultGoalProfileRepository,
             DailyGoalRepository dailyGoalRepository,
             IGoalScaffoldingService goalScaffoldingService,
-            ILogger<AssistantToolService> logger)
+            ILogger<AssistantToolService> logger,
+            IAccountsService accountsService,
+            IDailyGoalService dailyGoalService)
         {
             _nutritionService = nutritionService;
             _profileService = profileService;
@@ -42,6 +47,8 @@ namespace NutritionAmbition.Backend.API.Services
             _dailyGoalRepository = dailyGoalRepository;
             _goalScaffoldingService = goalScaffoldingService;
             _logger = logger;
+            _accountsService = accountsService;
+            _dailyGoalService = dailyGoalService;
         }
 
         public async Task<LogMealToolResponse> LogMealToolAsync(string accountId, string meal)
@@ -192,6 +199,56 @@ namespace NutritionAmbition.Backend.API.Services
                 errorResponse.AddError($"Failed to create profile and goals: {ex.Message}");
                 return errorResponse;
             }
+        }
+
+        public async Task<GetUserContextResponse> GetUserContextToolAsync(string accountId, int? timezoneOffsetMinutes)
+        {
+            var response = new GetUserContextResponse();
+
+            try
+            {
+                _logger.LogInformation("Getting user context for account {AccountId} with timezone offset {TimezoneOffset}", 
+                    accountId, timezoneOffsetMinutes);
+                
+                // Retrieve the account
+                var account = await _accountsService.GetAccountByIdAsync(accountId);
+                if (account == null)
+                {
+                    response.AddError("Account not found");
+                    return response;
+                }
+                
+                // Determine if user has a profile
+                bool hasUserProfile = account.UserProfile != null;
+                
+                // Retrieve today's goal
+                var todayGoal = await _dailyGoalService.GetOrGenerateTodayGoalAsync(accountId);
+                
+                // Determine if user has goals
+                bool hasGoals = todayGoal != null;
+                
+                // Set timezone offset, using 0 as default if not provided
+                int offset = timezoneOffsetMinutes ?? 0;
+                
+                // Compute local date based on timezone offset
+                string localDate = DateTime.UtcNow.AddMinutes(offset).ToString("yyyy-MM-dd");
+                
+                // Populate response
+                response.HasUserProfile = hasUserProfile;
+                response.HasGoals = hasGoals;
+                response.LocalDate = localDate;
+                response.TimezoneOffsetMinutes = offset;
+                response.IsSuccess = true;
+                
+                _logger.LogInformation("Successfully retrieved user context for account {AccountId}", accountId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving user context for account {AccountId}", accountId);
+                response.AddError($"Failed to retrieve user context: {ex.Message}");
+            }
+            
+            return response;
         }
 
         private MealType DetermineMealType(string mealDescription)

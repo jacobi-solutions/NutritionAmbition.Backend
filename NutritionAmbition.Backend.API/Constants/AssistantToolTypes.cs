@@ -10,6 +10,7 @@ namespace NutritionAmbition.Backend.API.Constants
         public const string GetProfileAndGoalsTool = "GetProfileAndGoalsTool";
         public const string SetDefaultGoalProfileTool = "SetDefaultGoalProfileTool";
         public const string OverrideDailyGoalsTool = "OverrideDailyGoalsTool";
+        public const string GetUserContextTool = "GetUserContextTool";
         
         /// <summary>
         /// Checks if the provided tool name is a valid assistant tool
@@ -22,7 +23,8 @@ namespace NutritionAmbition.Backend.API.Constants
                    toolName == SaveUserProfileTool || 
                    toolName == GetProfileAndGoalsTool ||
                    toolName == SetDefaultGoalProfileTool ||
-                   toolName == OverrideDailyGoalsTool;
+                   toolName == OverrideDailyGoalsTool ||
+                   toolName == GetUserContextTool;
         }
     }
 } 

@@ -5,6 +5,7 @@ using NutritionAmbition.Backend.API.Services;
 using NutritionAmbition.Backend.API.DataContracts;
 using System.Threading.Tasks;
 using System.Linq;
+using System;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
@@ -43,8 +44,29 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized();
             }
 
-            var response = await _dailyGoalService.GetForDateAsync(account.Id, request);
-            return Ok(response);
+            // Create response object
+            var response = new GetDailyGoalResponse();
+            
+            try
+            {
+                // Use date from request or default to today
+                DateTime requestDate = request.Date ?? DateTime.UtcNow.Date;
+                
+                // Use the new read-only method that doesn't create a goal if one doesn't exist
+                var dailyGoal = await _dailyGoalService.GetGoalByDateAsync(account.Id, requestDate);
+                
+                // Set the response - goal can be null if not found
+                response.DailyGoal = dailyGoal;
+                response.IsSuccess = true;
+                
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving daily goal for account {AccountId}", account.Id);
+                response.AddError($"Failed to retrieve daily goal: {ex.Message}");
+                return BadRequest(response);
+            }
         }
 
         [HttpPost("SetDailyGoal")]

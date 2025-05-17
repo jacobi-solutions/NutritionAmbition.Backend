@@ -48,6 +48,8 @@ namespace NutritionAmbition.Backend.API.Services
                         return await HandleSetDefaultGoalProfileToolAsync(accountId, toolInput);
                     case AssistantToolTypes.OverrideDailyGoalsTool:
                         return await HandleOverrideDailyGoalsToolAsync(accountId, toolInput);
+                    case AssistantToolTypes.GetUserContextTool:
+                        return await HandleGetUserContextToolAsync(accountId, toolInput);
                     default:
                         _logger.LogWarning("Unknown tool call: {ToolName}", toolName);
                         return JsonSerializer.Serialize(new { error = $"Unknown tool: {toolName}" });
@@ -204,6 +206,32 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogError(ex, "Error processing OverrideDailyGoalsTool request");
                 return JsonSerializer.Serialize(new { error = $"Error overriding daily goals: {ex.Message}" });
+            }
+        }
+
+        private async Task<string> HandleGetUserContextToolAsync(string accountId, string toolInput)
+        {
+            try
+            {
+                // Parse the input JSON
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var request = JsonSerializer.Deserialize<GetUserContextRequest>(toolInput, options);
+
+                // Call the service to get the user context
+                var response = await _assistantToolService.GetUserContextToolAsync(accountId, request?.TimezoneOffsetMinutes);
+
+                // Return the serialized response
+                return JsonSerializer.Serialize(response);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Error parsing GetUserContextTool input: {ToolInput}", toolInput);
+                return JsonSerializer.Serialize(new { error = "Invalid input format" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing GetUserContextTool request");
+                return JsonSerializer.Serialize(new { error = $"Error retrieving user context: {ex.Message}" });
             }
         }
     }
