@@ -117,11 +117,17 @@ namespace NutritionAmbition.Backend.API.Services
 
             try
             {
+                _logger.LogInformation("Setting default goal profile for account {AccountId}", request.AccountId);
+
+                var nutrientGoals = request.NutrientGoals != null && request.NutrientGoals.Any()
+                    ? request.NutrientGoals
+                    : _goalScaffoldingService.GenerateNutrientGoals(request.BaseCalories);
+
                 var defaultProfile = new DefaultGoalProfile
                 {
                     AccountId = request.AccountId,
                     BaseCalories = request.BaseCalories,
-                    NutrientGoals = _goalScaffoldingService.GenerateNutrientGoals(request.BaseCalories)
+                    NutrientGoals = nutrientGoals
                 };
 
                 var success = await _defaultGoalProfileRepository.UpsertAsync(defaultProfile);
@@ -142,6 +148,7 @@ namespace NutritionAmbition.Backend.API.Services
                 return response;
             }
         }
+
 
         public async Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(OverrideDailyGoalsRequest request)
         {

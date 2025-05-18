@@ -99,16 +99,25 @@ namespace NutritionAmbition.Backend.API.Services
             try
             {
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var request = JsonSerializer.Deserialize<dynamic>(toolInput, options);
+                var root = JsonSerializer.Deserialize<JsonElement>(toolInput, options);
+
+                int age = root.GetProperty("age").GetInt32();
+                string sex = root.GetProperty("sex").GetString();
+                int heightFeet = root.GetProperty("heightFeet").GetInt32();
+                int heightInches = root.GetProperty("heightInches").GetInt32();
+                double weightLbs = root.GetProperty("weightLbs").GetDouble();
+                string activityLevel = root.GetProperty("activityLevel").GetString();
+
 
                 var profileRequest = new DataContracts.Profile.SaveUserProfileRequest
                 {
                     AccountId = accountId,
-                    Age = Convert.ToInt32(request.GetProperty("age")),
-                    Sex = request.GetProperty("sex").GetString(),
-                    HeightCm = Convert.ToDouble(request.GetProperty("heightCm")),
-                    WeightKg = Convert.ToDouble(request.GetProperty("weightKg")),
-                    ActivityLevel = request.GetProperty("activityLevel").GetString()
+                    Age = age,
+                    Sex = sex,
+                    HeightFeet = heightFeet,
+                    HeightInches = heightInches,
+                    WeightLbs = weightLbs,
+                    ActivityLevel = activityLevel
                 };
 
                 var response = await _assistantToolService.SaveUserProfileToolAsync(profileRequest);
@@ -147,27 +156,36 @@ namespace NutritionAmbition.Backend.API.Services
         {
             try
             {
-                // Parse the input JSON
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var request = JsonSerializer.Deserialize<dynamic>(toolInput, options);
-
-                // Create a request object from the dynamic data
-                var profileRequest = new SetDefaultGoalProfileRequest
+                var profileRequest = JsonSerializer.Deserialize<SetDefaultGoalProfileRequest>(toolInput, options);
+                
+                if (profileRequest == null)
                 {
-                    AccountId = accountId,
-                    BaseCalories = Convert.ToDouble(request.GetProperty("baseCalories"))
-                };
+                    _logger.LogWarning("Failed to deserialize SetDefaultGoalProfileTool input: {ToolInput}", toolInput);
+                    return JsonSerializer.Serialize(new { error = "Invalid input format for SetDefaultGoalProfileTool" });
+                }
+                
+                // Set the account ID
+                profileRequest.AccountId = accountId;
+                
+                // Log the number of nutrient goals received
+                _logger.LogInformation("Received {Count} nutrient goals for account {AccountId}", 
+                    profileRequest.NutrientGoals?.Count ?? 0, accountId);
+                
+                // Check for missing required fields
+                if (profileRequest.BaseCalories <= 0)
+                {
+                    _logger.LogWarning("Missing required field BaseCalories in SetDefaultGoalProfileTool input");
+                    return JsonSerializer.Serialize(new { error = "BaseCalories is required and must be greater than zero" });
+                }
 
-                // Call the service to process the default goal profile
                 var response = await _assistantToolService.SetDefaultGoalProfileToolAsync(profileRequest);
-
-                // Return the serialized response
                 return JsonSerializer.Serialize(response);
             }
             catch (JsonException ex)
             {
                 _logger.LogError(ex, "Error parsing SetDefaultGoalProfileTool input: {ToolInput}", toolInput);
-                return JsonSerializer.Serialize(new { error = "Invalid input format" });
+                return JsonSerializer.Serialize(new { error = "Invalid input format for SetDefaultGoalProfileTool" });
             }
             catch (Exception ex)
             {
@@ -175,6 +193,7 @@ namespace NutritionAmbition.Backend.API.Services
                 return JsonSerializer.Serialize(new { error = $"Error setting default goal profile: {ex.Message}" });
             }
         }
+
 
         private async Task<string> HandleOverrideDailyGoalsToolAsync(string accountId, string toolInput)
         {

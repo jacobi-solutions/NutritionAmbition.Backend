@@ -124,6 +124,7 @@ builder.Services.AddSingleton<AccountsRepository>();
 builder.Services.AddSingleton<FoodEntryRepository>();
 builder.Services.AddSingleton<ChatMessageRepository>();
 builder.Services.AddSingleton<OpenAiThreadRepository>();
+builder.Services.AddSingleton<AssistantRunRepository>();
 
 // ✅ Initialize Firebase Admin SDK
 var firebaseProjectId = firebaseSettings.ProjectId;

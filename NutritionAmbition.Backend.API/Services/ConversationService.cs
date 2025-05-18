@@ -32,6 +32,7 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly IThreadService _threadService;
         private readonly IAssistantToolHandlerService _assistantToolHandlerService;
         private readonly IDailyGoalService _dailyGoalService;
+        private readonly AssistantRunRepository _assistantRunRepository;
         private readonly ILogger<ConversationService> _logger;
         private readonly string _assistantId;
 
@@ -43,6 +44,7 @@ namespace NutritionAmbition.Backend.API.Services
             IThreadService threadService,
             IAssistantToolHandlerService assistantToolHandlerService,
             IDailyGoalService dailyGoalService,
+            AssistantRunRepository assistantRunRepository,
             ILogger<ConversationService> logger,
             OpenAiSettings openAiSettings)
         {
@@ -53,6 +55,7 @@ namespace NutritionAmbition.Backend.API.Services
             _threadService = threadService;
             _assistantToolHandlerService = assistantToolHandlerService;
             _dailyGoalService = dailyGoalService;
+            _assistantRunRepository = assistantRunRepository;
             _logger = logger;
             _assistantId = openAiSettings.AssistantId;
         }
@@ -311,6 +314,19 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
+                // Check if there's an active run for this account
+                await _assistantRunRepository.ExpireStaleRunsAsync(accountId, timeoutMinutes: 5);
+
+                var hasActiveRun = await _assistantRunRepository.HasActiveRunAsync(accountId);
+                if (hasActiveRun)
+                {
+                    _logger.LogWarning("Account {AccountId} has an active run in progress. Cannot start a new run.", accountId);
+                    response.RunStatus = "in_progress";
+                    response.AssistantMessage = "Hold on one moment — I'm still working on your last request!";
+                    response.IsSuccess = true;
+                    return response;
+                }
+
                 // Check if this is a daily check-in request
                 bool isDailyCheckIn = string.Equals(message, ConversationConstants.DAILY_CHECKIN, StringComparison.OrdinalIgnoreCase);
                 
@@ -369,6 +385,16 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     runId = await _openAiService.StartRunAsync(_assistantId, threadId);
                     _logger.LogInformation("Started run {RunId} for thread {ThreadId}", runId, threadId);
+                    
+                    // Record the run in our database
+                    await _assistantRunRepository.InsertRunAsync(new AssistantRun
+                    {
+                        AccountId = accountId,
+                        ThreadId = threadId,
+                        RunId = runId,
+                        Status = "in_progress",
+                        StartedAt = DateTime.UtcNow
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -379,6 +405,9 @@ namespace NutritionAmbition.Backend.API.Services
 
                 // 4. Poll for run completion or action required
                 var runResponse = await _openAiService.PollRunStatusAsync(threadId, runId);
+                
+                // Update the run status in our database
+                await _assistantRunRepository.UpdateRunStatusAsync(runId, runResponse.Status);
                 
                 // 5. Process tool calls if needed
                 if (runResponse.Status == "requires_action" && 
@@ -429,11 +458,17 @@ namespace NutritionAmbition.Backend.API.Services
                             
                             // Poll again for the final response
                             runResponse = await _openAiService.PollRunStatusAsync(threadId, runId);
+                            
+                            // Update the final run status
+                            await _assistantRunRepository.UpdateRunStatusAsync(runId, runResponse.Status);
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Error submitting tool outputs for run {RunId}", runId);
                             response.AddError("Failed to process tools for the assistant.");
+                            
+                            // Mark the run as failed
+                            await _assistantRunRepository.UpdateRunStatusAsync(runId, "failed");
                             return response;
                         }
                     }
@@ -491,6 +526,7 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 // 9. Set the response
                 response.AssistantMessage = assistantContent;
+                response.RunStatus = "completed";
                 response.IsSuccess = true;
                 
                 _logger.LogInformation("Successfully completed assistant conversation for account {AccountId}", accountId);

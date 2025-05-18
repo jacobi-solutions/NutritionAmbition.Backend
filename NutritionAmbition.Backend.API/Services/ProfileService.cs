@@ -56,13 +56,13 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                if (request.HeightCm <= 0)
+                if (request.HeightFeet < 0 || request.HeightInches < 0 || request.HeightInches > 11)
                 {
-                    response.AddError("Height must be greater than 0");
+                    response.AddError("Height must be valid (feet >= 0, inches between 0-11)");
                     return response;
                 }
 
-                if (request.WeightKg <= 0)
+                if (request.WeightLbs <= 0)
                 {
                     response.AddError("Weight must be greater than 0");
                     return response;
@@ -82,8 +82,9 @@ namespace NutritionAmbition.Backend.API.Services
 
                 account.UserProfile.Age = request.Age;
                 account.UserProfile.Sex = request.Sex;
-                account.UserProfile.HeightCm = request.HeightCm;
-                account.UserProfile.WeightKg = request.WeightKg;
+                account.UserProfile.HeightFeet = request.HeightFeet;
+                account.UserProfile.HeightInches = request.HeightInches;
+                account.UserProfile.WeightLbs = request.WeightLbs;
                 account.UserProfile.ActivityLevel = request.ActivityLevel;
 
                 await _accountsService.UpdateAccountAsync(account.Id, account);
@@ -133,8 +134,9 @@ namespace NutritionAmbition.Backend.API.Services
                     // Extract profile information if available
                     response.Age = account.UserProfile.Age;
                     response.Sex = account.UserProfile.Sex;
-                    response.HeightCm = account.UserProfile.HeightCm;
-                    response.WeightKg = account.UserProfile.WeightKg;
+                    response.HeightFeet = account.UserProfile.HeightFeet;
+                    response.HeightInches = account.UserProfile.HeightInches;
+                    response.WeightLbs = account.UserProfile.WeightLbs;
                     response.ActivityLevel = account.UserProfile.ActivityLevel;
                 }
 

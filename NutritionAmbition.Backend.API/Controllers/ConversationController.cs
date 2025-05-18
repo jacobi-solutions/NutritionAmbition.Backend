@@ -260,6 +260,13 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(response);
             }
 
+            // If the run is still in progress, return a 202 Accepted with the friendly message
+            if (response.RunStatus == "in_progress")
+            {
+                _logger.LogWarning("Assistant run for account {AccountId} is still in progress. Returning friendly waiting message.", account.Id);
+                return StatusCode(202, response); // 202 Accepted
+            }
+
             return Ok(response);
         }
     }
