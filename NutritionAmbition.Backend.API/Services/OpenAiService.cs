@@ -249,12 +249,12 @@ namespace NutritionAmbition.Backend.API.Services
                     new
                     {
                         role = OpenAiModelNames.SystemRole,
-                        content = "You are a nutrition assistant helping users match their food descriptions to the best branded food from a list. The user's report includes the food name, quantity, and unit. Choose the food item that most closely matches based on food name, brand name, and portion size. Only respond with the number of the best matching option. If none are a good match, respond with -1."
+                        content = SystemPrompts.BrandedFoodReranker
                     },
                     new
                     {
                         role = OpenAiModelNames.UserRole,
-                        content = $"The user reported eating: {quantity} {unit} {userQuery}\n\nAvailable branded food options:\n{formattedOptions}"
+                        content = $"The user said: {quantity} {unit} {userQuery}. Please score each of the following options:\n\n{formattedOptions}"
                     }
                 };
 
@@ -262,27 +262,34 @@ namespace NutritionAmbition.Backend.API.Services
                 var aiResponse = await GetChatResponseAsync(
                     messages, 
                     null, 
-                    _openAiSettings.LowTemperature);
+                    _openAiSettings.ZeroTemperature,
+                    OpenAiModelNames.JsonObjectFormat);
                 
-                // Parse the response to get the selected option
-                if (int.TryParse(aiResponse.Trim(), out int selectedOption))
+                try
                 {
-                    // Convert from 1-based to 0-based index
-                    if (selectedOption > 0 && selectedOption <= brandedFoods.Count)
+                    // Parse the response as a JSON array of integers
+                    var scores = JsonSerializer.Deserialize<List<int>>(aiResponse);
+                    
+                    if (scores == null || scores.Count != brandedFoods.Count)
                     {
-                        _logger.LogInformation("OpenAI selected branded food option {SelectedOption} ({FoodName}) from {Count} options", 
-                            selectedOption, brandedFoods[selectedOption - 1].FoodName, brandedFoods.Count);
-                        return selectedOption - 1;
-                    }
-                    else if (selectedOption == -1)
-                    {
-                        _logger.LogInformation("OpenAI did not find a suitable match among {Count} branded food options", brandedFoods.Count);
+                        _logger.LogWarning("Invalid response format from OpenAI: {Response}", aiResponse);
                         return -1;
                     }
+
+                    // Find the index of the highest score
+                    var maxScore = scores.Max();
+                    var selectedIndex = scores.IndexOf(maxScore);
+                    
+                    _logger.LogInformation("OpenAI scored branded food options. Highest score: {MaxScore} for option {SelectedIndex} ({FoodName})", 
+                        maxScore, selectedIndex + 1, brandedFoods[selectedIndex].FoodName);
+                    
+                    return selectedIndex;
                 }
-                
-                _logger.LogWarning("OpenAI provided an invalid selection: {Response}", aiResponse);
-                return -1;
+                catch (JsonException ex)
+                {
+                    _logger.LogError(ex, "Error parsing scores from OpenAI response: {Response}", aiResponse);
+                    return -1;
+                }
             }
             catch (Exception ex)
             {

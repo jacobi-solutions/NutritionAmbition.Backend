@@ -124,14 +124,15 @@ namespace NutritionAmbition.Backend.API.Repositories
                 var filter = Builders<ChatMessage>.Filter.And(
                     Builders<ChatMessage>.Filter.Eq(m => m.AccountId, accountId),
                     Builders<ChatMessage>.Filter.Gte(m => m.LoggedDateUtc, startOfDay),
-                    Builders<ChatMessage>.Filter.Lt(m => m.LoggedDateUtc, endOfDay)
+                    Builders<ChatMessage>.Filter.Lt(m => m.LoggedDateUtc, endOfDay),
+                    Builders<ChatMessage>.Filter.Ne(m => m.Role, MessageRoleTypes.Tool)
                 );
 
                 var messages = await _collection.Find(filter)
                     .SortBy(m => m.LoggedDateUtc)
                     .ToListAsync();
 
-                _logger.LogInformation("Retrieved {Count} chat messages for account {AccountId} on {Date}", 
+                _logger.LogInformation("Retrieved {Count} chat messages for account {AccountId} on {Date} (excluding tools)", 
                     messages.Count, accountId, date.ToString("yyyy-MM-dd"));
 
                 return messages;

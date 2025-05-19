@@ -53,6 +53,11 @@ namespace NutritionAmbition.Backend.API.Settings
         /// <summary>
         /// Temperature for more deterministic completions (lower = more consistent)
         /// </summary>
+        public float ZeroTemperature = 0.0f;
+
+        /// <summary>
+        /// Temperature for more deterministic completions (lower = more consistent)
+        /// </summary>
         public float LowTemperature { get; set; } = 0.2f;
         
         /// <summary>
