@@ -110,7 +110,6 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     _logger.LogWarning("Nutritionix returned no data for: {FoodDescription}", foodDescription);
                     response.AddError("Could not find nutrition data for the specified food description.");
-                    response.AiCoachResponse = await GenerateFallbackCoachResponseAsync(foodDescription);
                     return response;
                 }
 
@@ -162,32 +161,12 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                 }
 
-                // 4. Generate AI coach response
-                if (response.IsSuccess && response.Foods.Any())
-                {
-                    try
-                    {
-                        // Use the first food item for the coach response context
-                        response.AiCoachResponse = await _openAiService.GenerateCoachResponseAsync(foodDescription, response.Foods[0]);
-                    }
-                    catch (Exception coachEx)
-                    {
-                        _logger.LogWarning(coachEx, "Failed to generate AI coach response for: {FoodDescription}", foodDescription);
-                        response.AiCoachResponse = "Logged!";
-                    }
-                }
-                else
-                {
-                    response.AiCoachResponse = await GenerateFallbackCoachResponseAsync(foodDescription);
-                }
-
                 return response;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing food text and getting nutrition data for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
                 response.AddError($"Error processing food text: {ex.Message}");
-                response.AiCoachResponse = "Sorry, an error occurred while processing your request.";
                 return response;
             }
         }
@@ -491,27 +470,22 @@ namespace NutritionAmbition.Backend.API.Services
                 // 5. Check if we found any nutrition data
                 if (allFoodItems.Any())
                 {
+                    _logger.LogInformation("Converting {Count} food items to FoodNutrition objects", allFoodItems.Count);
+                    
                     response.Foods = ConvertFoodItemsToFoodNutrition(allFoodItems);
                     response.IsSuccess = true;
-                    response.Source = "smart";
                     
-                    _logger.LogInformation("Smart nutrition lookup successful: Found data for {BrandedCount} branded and {GenericCount} generic items", 
-                        brandedProcessed, genericProcessed);
-                    
-                    // Save the food entry to the database with grouping
+                    // 5. Save the entries in the database
                     try
                     {
-                        // Use the already mapped foodItems directly
-                        var parsedItems = allFoodItems;
-                        
-                        // Group the food items
-                        var groupedItems = await _openAiService.GroupFoodItemsAsync(foodDescription, parsedItems);
+                        // 🟢 Group the food items using AI
+                        var groupedItems = await _openAiService.GroupFoodItemsAsync(foodDescription, allFoodItems);
                         
                         // If grouping failed, fallback to individual groups
                         if (groupedItems == null || !groupedItems.Any())
                         {
                             _logger.LogWarning("AI grouping failed or returned empty list, falling back to individual groups");
-                            groupedItems = parsedItems.Select(x => new FoodGroup { GroupName = x.Name, Items = new List<FoodItem> { x } }).ToList();
+                            groupedItems = allFoodItems.Select(x => new FoodGroup { GroupName = x.Name, Items = new List<FoodItem> { x } }).ToList();
                         }
                         
                         // Create the food entry request
@@ -542,51 +516,6 @@ namespace NutritionAmbition.Backend.API.Services
                         _logger.LogError(saveEx, "Error grouping or saving food entry for Account {AccountId} and description {FoodDescription}", 
                             accountId, foodDescription);
                         // Continue with the response even if saving fails
-                    }
-                    
-                    // Generate AI coach response based on the first food item
-                    try
-                    {
-                        // Use the first food item for the coach response
-                        if (response.Foods.Any())
-                        {
-                            var coachResponse = await _openAiService.GenerateCoachResponseAsync(foodDescription, response.Foods[0]);
-                            
-                            // Add information about missing items to the coach response if any
-                            if (missingItems.Count > 0)
-                            {
-                                // Take only the first few missing items if there are too many
-                                var itemsToShow = missingItems.Count <= 3 
-                                    ? string.Join(", ", missingItems) 
-                                    : string.Join(", ", missingItems.Take(2)) + $", and {missingItems.Count - 2} other items";
-                                    
-                                response.AiCoachResponse = $"{coachResponse} Some items couldn't be matched perfectly: {itemsToShow}.";
-                                _logger.LogInformation("Added missing items note to coach response. Missing items: {MissingItems}", 
-                                    string.Join(", ", missingItems));
-                            }
-                            else
-                            {
-                                response.AiCoachResponse = coachResponse;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to generate AI coach response for: {FoodDescription}", foodDescription);
-                        
-                        // Even if the coach response generation fails, still try to inform about missing items
-                        if (missingItems.Count > 0)
-                        {
-                            var itemsToShow = missingItems.Count <= 3 
-                                ? string.Join(", ", missingItems) 
-                                : string.Join(", ", missingItems.Take(2)) + $", and {missingItems.Count - 2} other items";
-                                
-                            response.AiCoachResponse = $"Logged! Some items couldn't be matched perfectly: {itemsToShow}.";
-                        }
-                        else
-                        {
-                            response.AiCoachResponse = "Logged!";
-                        }
                     }
                     
                     return response;
@@ -729,19 +658,6 @@ namespace NutritionAmbition.Backend.API.Services
             }
             
             return foodNutritions;
-        }
-
-        private async Task<string> GenerateFallbackCoachResponseAsync(string foodDescription)
-        {
-            try
-            {
-                return await _openAiService.GenerateCoachResponseAsync(foodDescription, null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to generate fallback AI coach response for: {FoodDescription}", foodDescription);
-                return "Sorry, I couldn\'t find nutrition data, but I\'ve noted the description.";
-            }
         }
 
         private string BuildSearchQuery(ParsedFoodItem item)

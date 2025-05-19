@@ -34,6 +34,4 @@ namespace NutritionAmbition.Backend.API.DataContracts
             }
         }
     }
-
-    
 }

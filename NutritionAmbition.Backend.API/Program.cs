@@ -116,15 +116,19 @@ builder.Services.AddSingleton(sp =>
 // Register OpenAI service
 builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 
-// Register Thread Service
-builder.Services.AddScoped<IThreadService, ThreadService>();
+// Register OpenAI Responses service
+builder.Services.AddHttpClient<OpenAiResponsesService>();
+builder.Services.AddScoped<IOpenAiResponsesService, OpenAiResponsesService>();
+builder.Services.AddOptions<OpenAiSettings>().Configure(options => 
+{
+    options.ApiKey = openAiSettings.ApiKey;
+    options.ApiBaseUrl = openAiSettings.ApiBaseUrl;
+});
 
 // Repos
 builder.Services.AddSingleton<AccountsRepository>();
 builder.Services.AddSingleton<FoodEntryRepository>();
 builder.Services.AddSingleton<ChatMessageRepository>();
-builder.Services.AddSingleton<OpenAiThreadRepository>();
-builder.Services.AddSingleton<AssistantRunRepository>();
 
 // ✅ Initialize Firebase Admin SDK
 var firebaseProjectId = firebaseSettings.ProjectId;

@@ -10,6 +10,7 @@ using NutritionAmbition.Backend.API.Services;
 using System;
 using System.Threading.Tasks;
 using System.Linq;
+using System.Collections.Generic;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
@@ -51,30 +52,14 @@ namespace NutritionAmbition.Backend.API.Controllers
                 _logger.LogInformation("Using client-provided timezone offset: {TimezoneOffsetMinutes} minutes", request.TimezoneOffsetMinutes.Value);
             }
 
-            // Call the RunAssistantConversationAsync with daily check-in trigger
-            var assistantResponse = await _conversationService.RunAssistantConversationAsync(
+            // Use the Responses API with daily check-in trigger
+            var response = await _conversationService.RunResponsesConversationAsync(
                 account.Id, 
-                ConversationConstants.DAILY_CHECKIN, 
-                request.TimezoneOffsetMinutes);
+                ConversationConstants.DAILY_CHECKIN);
 
-            if (!assistantResponse.IsSuccess)
+            if (!response.IsSuccess)
             {
-                return BadRequest(assistantResponse);
-            }
-
-            // Map the AssistantRunMessageResponse to BotMessageResponse to maintain API compatibility
-            var response = new BotMessageResponse
-            {
-                Message = assistantResponse.AssistantMessage,
-                IsSuccess = assistantResponse.IsSuccess
-            };
-
-            if (assistantResponse.Errors != null)
-            {
-                foreach (var error in assistantResponse.Errors)
-                {
-                    response.AddError(error.ErrorMessage, error.ErrorCode);
-                }
+                return BadRequest(response);
             }
 
             return Ok(response);
@@ -184,30 +169,6 @@ namespace NutritionAmbition.Backend.API.Controllers
             return Ok(response);
         }
 
-        [HttpPost("GetChatMessagesByDate")]
-        public async Task<ActionResult<GetChatMessagesResponse>> GetChatMessagesByDate([FromBody] GetChatMessagesRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized("User account not found");
-            }
-
-            var response = await _conversationService.GetChatMessagesAsync(account.Id, request);
-            
-            if (!response.IsSuccess)
-            {
-                return BadRequest(response);
-            }
-
-            return Ok(response);
-        }
-
         [HttpPost("ClearChatMessages")]
         public async Task<ActionResult<ClearChatMessagesResponse>> ClearChatMessages([FromBody] ClearChatMessagesRequest request)
         {
@@ -232,42 +193,25 @@ namespace NutritionAmbition.Backend.API.Controllers
             return Ok(response);
         }
 
-        [HttpPost("AssistantRunMessage")]
+        [HttpPost("RunResponsesConversation")]
         [FlexibleAuthorize]
-        public async Task<ActionResult<AssistantRunMessageResponse>> AssistantRunMessage([FromBody] AssistantRunMessageRequest request)
+        public async Task<ActionResult<BotMessageResponse>> RunResponsesConversation([FromBody] RunChatRequest request)
         {
-            if (!ModelState.IsValid)
+            if (request == null || string.IsNullOrWhiteSpace(request.Message))
             {
-                return BadRequest(ModelState);
+                var errorResponse = new BotMessageResponse();
+                errorResponse.AddError("Message is required.");
+                return BadRequest(errorResponse);
             }
 
             var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
             if (account == null)
             {
-                return Unauthorized("User account not found");
+                return Unauthorized();
             }
 
-            // Check if timezone offset is provided
-            if (request.TimezoneOffsetMinutes.HasValue)
-            {
-                _logger.LogInformation("Using client-provided timezone offset: {TimezoneOffsetMinutes} minutes", request.TimezoneOffsetMinutes.Value);
-            }
-
-            var response = await _conversationService.RunAssistantConversationAsync(account.Id, request.Message, request.TimezoneOffsetMinutes);
-
-            if (!response.IsSuccess)
-            {
-                return BadRequest(response);
-            }
-
-            // If the run is still in progress, return a 202 Accepted with the friendly message
-            if (response.RunStatus == "in_progress")
-            {
-                _logger.LogWarning("Assistant run for account {AccountId} is still in progress. Returning friendly waiting message.", account.Id);
-                return StatusCode(202, response); // 202 Accepted
-            }
-
-            return Ok(response);
+            var result = await _conversationService.RunResponsesConversationAsync(account.Id, request.Message);
+            return Ok(result);
         }
     }
 } 

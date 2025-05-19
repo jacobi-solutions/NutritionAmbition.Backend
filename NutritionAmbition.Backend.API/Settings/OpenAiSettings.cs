@@ -31,19 +31,9 @@ namespace NutritionAmbition.Backend.API.Settings
         public string ChatCompletionsEndpoint { get; set; } = string.Empty;
         
         /// <summary>
-        /// Endpoint for threads API
+        /// Endpoint for the OpenAI Responses API
         /// </summary>
-        public string ThreadsEndpoint { get; set; } = string.Empty;
-        
-        /// <summary>
-        /// Endpoint for thread messages API
-        /// </summary>
-        public string ThreadMessagesEndpoint { get; set; } = string.Empty;
-        
-        /// <summary>
-        /// Endpoint for thread runs API
-        /// </summary>
-        public string ThreadRunsEndpoint { get; set; } = string.Empty;
+        public string ResponsesEndpoint { get; set; } = "/v1/responses";
         
         /// <summary>
         /// Endpoint for submitting tool outputs
@@ -54,7 +44,12 @@ namespace NutritionAmbition.Backend.API.Settings
         /// Temperature for general-purpose completions (higher = more creative)
         /// </summary>
         public float DefaultTemperature { get; set; } = 0.7f;
-        
+
+        /// <summary>
+        /// Temperature for more creative, varied responses (e.g., coach feedback)
+        /// </summary>
+        public float HighTemperature { get; set; } = 0.9f;
+
         /// <summary>
         /// Temperature for more deterministic completions (lower = more consistent)
         /// </summary>

@@ -10,5 +10,6 @@ namespace NutritionAmbition.Backend.API.Models
         public DateTime LoggedDateUtc { get; set; } = DateTime.UtcNow;
         public string? FoodEntryId { get; set; }
         public bool IsRead { get; set; } = false;
+        public string? ResponseId { get; set; }
     }
 } 

@@ -10,6 +10,7 @@ using NutritionAmbition.Backend.API.Repositories;
 using NutritionAmbition.Backend.API.Services;
 using Microsoft.Extensions.Options;
 using NutritionAmbition.Backend.API.Settings;
+using System.Text.Json;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -17,10 +18,10 @@ namespace NutritionAmbition.Backend.API.Services
     {
         Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal);
         Task<BotMessageResponse> GetAnonymousWarningAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal);
-        Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request);
+        Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request, string? responseId = null);
         Task<GetChatMessagesResponse> GetChatMessagesAsync(string accountId, GetChatMessagesRequest request);
         Task<ClearChatMessagesResponse> ClearChatMessagesAsync(string accountId, ClearChatMessagesRequest request);
-        Task<AssistantRunMessageResponse> RunAssistantConversationAsync(string accountId, string message, int? timezoneOffsetMinutes = null);
+        Task<BotMessageResponse> RunResponsesConversationAsync(string accountId, string message);
     }
 
     public class ConversationService : IConversationService
@@ -28,36 +29,136 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly ChatMessageRepository _chatMessageRepository;
         private readonly FoodEntryRepository _foodEntryRepository;
         private readonly IAccountsService _accountsService;
-        private readonly IOpenAiService _openAiService;
-        private readonly IThreadService _threadService;
         private readonly IAssistantToolHandlerService _assistantToolHandlerService;
         private readonly IDailyGoalService _dailyGoalService;
-        private readonly AssistantRunRepository _assistantRunRepository;
         private readonly ILogger<ConversationService> _logger;
-        private readonly string _assistantId;
+        private readonly IOpenAiResponsesService _openAiResponsesService;
+        
+        private readonly List<object> _responseTools = new List<object>
+        {
+            new {
+                type = "function",
+                name = "LogMealTool",
+                description = "Log a user's meal based on a natural language description.",
+                parameters = new {
+                    type = "object",
+                    properties = new {
+                        meal = new {
+                            type = "string",
+                            description = "A description of the user's meal, such as '2 eggs and toast with orange juice'."
+                        }
+                    },
+                    required = new[] { "meal" }
+                }
+            },
+            new {
+                type = "function",
+                name = "SaveUserProfileTool",
+                description = "Save the user's basic profile information including age, sex, height, weight, and activity level. If the user gives you Height and Weight in metric units, convert them to imperial.",
+                parameters = new {
+                    type = "object",
+                    properties = new {
+                        age = new { type = "integer", description = "User's age in years" },
+                        sex = new { type = "string", description = "User's biological sex, either 'male' or 'female'" },
+                        heightFeet = new { type = "integer", description = "User's height in feet" },
+                        heightInches = new { type = "integer", description = "Additional inches beyond the feet" },
+                        weightLbs = new { type = "number", description = "User's weight in pounds" },
+                        activityLevel = new { type = "string", description = "User's activity level: sedentary, light, moderate, active, or very active" }
+                    },
+                    required = new[] { "age", "sex", "heightFeet", "heightInches", "weightLbs", "activityLevel" }
+                }
+            },
+            new {
+                type = "function",
+                name = "GetProfileAndGoalsTool",
+                description = "Fetch the user's current profile and daily nutrient goals. Use this when the user asks about their goals or profile data.",
+                parameters = new {
+                    type = "object",
+                    properties = new { },
+                    required = new string[] { }
+                }
+            },
+            new {
+                type = "function",
+                name = "SetDefaultGoalProfileTool",
+                description = "Set or update the user's default daily nutrition goals.",
+                parameters = new {
+                    type = "object",
+                    properties = new {
+                        baseCalories = new { type = "number", description = "The user's default daily calorie goal" },
+                        nutrientGoals = new {
+                            type = "array",
+                            description = "List of nutrient goals to override the system defaults",
+                            items = new {
+                                type = "object",
+                                properties = new {
+                                    nutrientName = new { type = "string", description = "The name of the nutrient" },
+                                    unit = new { type = "string", description = "The unit of measurement" },
+                                    minValue = new { type = "number", description = "Optional lower bound" },
+                                    maxValue = new { type = "number", description = "Optional upper bound" },
+                                    percentageOfCalories = new { type = "number", description = "Optional % of total calories" }
+                                },
+                                required = new[] { "nutrientName", "unit" }
+                            }
+                        }
+                    },
+                    required = new string[] { }
+                }
+            },
+            new {
+                type = "function",
+                name = "OverrideDailyGoalsTool",
+                description = "Temporarily override today's nutrition goals.",
+                parameters = new {
+                    type = "object",
+                    properties = new {
+                        newBaseCalories = new { type = "number", description = "Calorie target for today only" },
+                        nutrientGoals = new {
+                            type = "array",
+                            items = new {
+                                type = "object",
+                                properties = new {
+                                    nutrientName = new { type = "string", description = "Nutrient name" },
+                                    unit = new { type = "string", description = "Unit" },
+                                    minValue = new { type = "number" },
+                                    maxValue = new { type = "number" },
+                                    percentageOfCalories = new { type = "number" }
+                                },
+                                required = new[] { "nutrientName", "unit" }
+                            }
+                        }
+                    },
+                    required = new string[] { }
+                }
+            },
+            new {
+                type = "function",
+                name = "GetUserContextTool",
+                description = "Fetch contextual information about the user. Call this at the beginning of every thread.",
+                parameters = new {
+                    type = "object",
+                    properties = new { },
+                    required = new string[] { }
+                }
+            }
+        };
 
         public ConversationService(
             ChatMessageRepository chatMessageRepository,
             FoodEntryRepository foodEntryRepository,
             IAccountsService accountsService,
-            IOpenAiService openAiService,
-            IThreadService threadService,
             IAssistantToolHandlerService assistantToolHandlerService,
             IDailyGoalService dailyGoalService,
-            AssistantRunRepository assistantRunRepository,
             ILogger<ConversationService> logger,
-            OpenAiSettings openAiSettings)
+            IOpenAiResponsesService openAiResponsesService)
         {
             _chatMessageRepository = chatMessageRepository;
             _foodEntryRepository = foodEntryRepository;
             _accountsService = accountsService;
-            _openAiService = openAiService;
-            _threadService = threadService;
             _assistantToolHandlerService = assistantToolHandlerService;
             _dailyGoalService = dailyGoalService;
-            _assistantRunRepository = assistantRunRepository;
             _logger = logger;
-            _assistantId = openAiSettings.AssistantId;
+            _openAiResponsesService = openAiResponsesService;
         }
 
         public async Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal)
@@ -75,15 +176,14 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                var systemPrompt = "You are a friendly and helpful nutrition assistant. Your goal is to help users track their meals and maintain a healthy diet. Be encouraging and supportive.";
+                var systemPrompt = SystemPrompts.DefaultNutritionAssistant;
                 var userPrompt = "The user has just logged a meal. Provide a helpful hint or suggestion about nutrition or meal tracking.";
 
                 try
                 {
-                    var message = await _openAiService.CreateChatCompletionAsync(systemPrompt, userPrompt);
+                    // Use the OpenAI Responses API for generating the hint
+                    response = await _openAiResponsesService.RunConversationAsync(accountId, userPrompt, systemPrompt);
                     _logger.LogInformation("Successfully generated post-log hint for account {AccountId}", accountId);
-                    response.Message = message;
-                    response.IsSuccess = true;
                 }
                 catch (Exception ex)
                 {
@@ -121,15 +221,14 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                var systemPrompt = "You are a friendly and helpful nutrition assistant. Your goal is to help users track their meals and maintain a healthy diet. Be encouraging and supportive.";
+                var systemPrompt = SystemPrompts.DefaultNutritionAssistant;
                 var userPrompt = "The user is using the app anonymously. Encourage them to create an account to save their progress.";
 
                 try
                 {
-                    var message = await _openAiService.CreateChatCompletionAsync(systemPrompt, userPrompt);
+                    // Use the OpenAI Responses API for generating the warning
+                    response = await _openAiResponsesService.RunConversationAsync(accountId, userPrompt, systemPrompt);
                     _logger.LogInformation("Successfully generated anonymous warning for account {AccountId}", accountId);
-                    response.Message = message;
-                    response.IsSuccess = true;
                 }
                 catch (Exception ex)
                 {
@@ -152,7 +251,7 @@ namespace NutritionAmbition.Backend.API.Services
             return response;
         }
 
-        public async Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request)
+        public async Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request, string? responseId = null)
         {
             var response = new LogChatMessageResponse();
 
@@ -174,14 +273,24 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
+                var messageRole = request.Role == "assistant" ? MessageRoleTypes.Assistant : 
+                                  request.Role == "tool" ? MessageRoleTypes.Tool : MessageRoleTypes.User;
+
                 var chatMessage = new ChatMessage
                 {
                     AccountId = accountId,
                     FoodEntryId = request.FoodEntryId,
                     Content = request.Content,
-                    Role = request.Role == "assistant" ? MessageRoleTypes.Assistant : MessageRoleTypes.User,
+                    Role = messageRole,
                     LoggedDateUtc = DateTime.UtcNow
                 };
+                
+                // Set ResponseId if it's an assistant message and responseId is provided
+                if (messageRole == MessageRoleTypes.Assistant && !string.IsNullOrEmpty(responseId))
+                {
+                    chatMessage.ResponseId = responseId;
+                    _logger.LogInformation("Setting ResponseId {ResponseId} on assistant message", responseId);
+                }
                 
                 var messageId = await _chatMessageRepository.AddAsync(chatMessage);
                 _logger.LogInformation("Successfully logged chat message with ID {MessageId} for account {AccountId}", 
@@ -289,256 +398,182 @@ namespace NutritionAmbition.Backend.API.Services
             return response;
         }
 
-        public async Task<AssistantRunMessageResponse> RunAssistantConversationAsync(string accountId, string message, int? timezoneOffsetMinutes = null)
+        public async Task<BotMessageResponse> RunResponsesConversationAsync(string accountId, string message)
         {
-            var response = new AssistantRunMessageResponse();
-            
-            // Set the AccountId in the response
-            response.AccountId = accountId;
-
             try
             {
-                _logger.LogInformation("Running assistant conversation for account {AccountId}", accountId);
+                var response = new BotMessageResponse();
+                _logger.LogInformation("Running responses conversation for account {AccountId}", accountId);
                 
                 if (string.IsNullOrEmpty(accountId))
                 {
-                    _logger.LogWarning("Cannot run assistant conversation: Account ID is null or empty");
+                    _logger.LogWarning("Cannot run responses conversation: Account ID is null or empty");
+                    
                     response.AddError("Account ID is required.");
                     return response;
                 }
                 
                 if (string.IsNullOrEmpty(message))
                 {
-                    _logger.LogWarning("Cannot run assistant conversation: Message is empty for account {AccountId}", accountId);
+                    _logger.LogWarning("Cannot run responses conversation: Message is empty for account {AccountId}", accountId);
                     response.AddError("Message content is required.");
                     return response;
                 }
 
-                // Check if there's an active run for this account
-                await _assistantRunRepository.ExpireStaleRunsAsync(accountId, timeoutMinutes: 5);
-
-                var hasActiveRun = await _assistantRunRepository.HasActiveRunAsync(accountId);
-                if (hasActiveRun)
-                {
-                    _logger.LogWarning("Account {AccountId} has an active run in progress. Cannot start a new run.", accountId);
-                    response.RunStatus = "in_progress";
-                    response.AssistantMessage = "Hold on one moment — I'm still working on your last request!";
-                    response.IsSuccess = true;
-                    return response;
-                }
-
-                // Check if this is a daily check-in request
-                bool isDailyCheckIn = string.Equals(message, ConversationConstants.DAILY_CHECKIN, StringComparison.OrdinalIgnoreCase);
+                response = await _openAiResponsesService.RunConversationAsync(
+                    accountId, 
+                    message, 
+                    SystemPrompts.DefaultNutritionAssistant,
+                    tools: _responseTools);
                 
-                // 1. Get or create today's thread for the user
-                var threadResponse = await _threadService.GetTodayThreadAsync(accountId);
-                
-                if (!threadResponse.IsSuccess || string.IsNullOrEmpty(threadResponse.ThreadId))
+                // Process tool calls if present
+                if (response.ToolCalls != null && response.ToolCalls.Count > 0)
                 {
-                    _logger.LogError("Failed to get thread for account {AccountId}", accountId);
-                    response.AddError("Failed to initialize conversation thread.");
-                    return response;
-                }
-                
-                string threadId = threadResponse.ThreadId;
-                _logger.LogInformation("Using thread {ThreadId} for account {AccountId}", threadId, accountId);
-
-                // 2. Append the user message to the thread or system message for daily check-in
-                try 
-                {
-                    if (isDailyCheckIn)
+                    _logger.LogInformation("Processing {Count} tool calls for account {AccountId}", response.ToolCalls.Count, accountId);
+                    
+                    // Create a dictionary to store tool outputs
+                    var toolOutputs = new Dictionary<string, string>();
+                    
+                    foreach (var toolCall in response.ToolCalls)
                     {
-                        // For daily check-in, append a system message with metadata
-                        await _openAiService.AppendSystemDailyCheckInAsync(accountId, threadId, timezoneOffsetMinutes);
-                        _logger.LogInformation("Successfully appended system daily check-in message to thread {ThreadId}", threadId);
+                        if (toolCall.Type == "function")
+                        {
+                            _logger.LogInformation("Processing tool call {ToolName} with ID {ToolCallId}", 
+                                toolCall.Function.Name, toolCall.Id);
+                            
+                            try
+                            {
+                                // Convert JsonElement to string for the tool handler
+                                string argumentsJson = toolCall.Function.ArgumentsJson;
+                                
+                                // Call the tool handler
+                                string toolOutput = await _assistantToolHandlerService.HandleToolCallAsync(
+                                    accountId, 
+                                    toolCall.Function.Name, 
+                                    argumentsJson);
+                                
+                                _logger.LogInformation("Successfully executed tool {ToolName}, output: {ToolOutput}", 
+                                    toolCall.Function.Name, toolOutput);
+                                
+                                // Store the tool output for submission
+                                toolOutputs.Add(toolCall.Id, toolOutput);
+                                
+                                // Log the tool output as a chat message
+                                try
+                                {
+                                    var logToolMessageRequest = new LogChatMessageRequest
+                                    {
+                                        Content = $"Tool: {toolCall.Function.Name}\nID: {toolCall.Id}\nOutput: {toolOutput}",
+                                        Role = "tool"
+                                    };
+                                    
+                                    await LogMessageAsync(accountId, logToolMessageRequest);
+                                    _logger.LogInformation("Successfully logged tool output as chat message for {ToolName}", 
+                                        toolCall.Function.Name);
+                                }
+                                catch (Exception logEx)
+                                {
+                                    _logger.LogWarning(logEx, "Failed to log tool output as chat message for {ToolName}, but continuing with response", 
+                                        toolCall.Function.Name);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Error processing tool call {ToolName}", toolCall.Function.Name);
+                                // Add an error message as the tool output
+                                toolOutputs.Add(toolCall.Id, JsonSerializer.Serialize(new { error = $"Error executing tool: {ex.Message}" }));
+                                
+                                // Log the error output as a chat message
+                                try
+                                {
+                                    var logToolErrorRequest = new LogChatMessageRequest
+                                    {
+                                        Content = $"Tool: {toolCall.Function.Name}\nID: {toolCall.Id}\nError: {ex.Message}",
+                                        Role = "tool"
+                                    };
+                                    
+                                    await LogMessageAsync(accountId, logToolErrorRequest);
+                                    _logger.LogInformation("Successfully logged tool error as chat message for {ToolName}", 
+                                        toolCall.Function.Name);
+                                }
+                                catch (Exception logEx)
+                                {
+                                    _logger.LogWarning(logEx, "Failed to log tool error as chat message for {ToolName}, but continuing with response", 
+                                        toolCall.Function.Name);
+                                }
+                            }
+                        }
                     }
-                    else
+                    
+                    // Submit tool outputs to get a final response
+                    if (toolOutputs.Count > 0)
                     {
-                        // For regular user message, append user message and log it
-                        await _openAiService.AppendMessageToThreadAsync(threadId, message);
-                        _logger.LogInformation("Successfully appended user message to thread {ThreadId}", threadId);
-
-                        // Explicitly log user message since frontend no longer does it.
+                        _logger.LogInformation("Submitting {Count} tool outputs for account {AccountId}", toolOutputs.Count, accountId);
+                        
+                        try
+                        {
+                            var finalResponse = await _openAiResponsesService.SubmitToolOutputsAsync(
+                                accountId,
+                                response,
+                                toolOutputs,
+                                SystemPrompts.DefaultNutritionAssistant,
+                                message);
+                                
+                            if (finalResponse.IsSuccess && !string.IsNullOrEmpty(finalResponse.Message))
+                            {
+                                _logger.LogInformation("Received final response after submitting tool outputs");
+                                response = finalResponse;
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Failed to get valid response after submitting tool outputs");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error submitting tool outputs for account {AccountId}", accountId);
+                        }
+                    }
+                }
+                
+                // Log the conversation if successful
+                if (response.IsSuccess && !string.IsNullOrEmpty(response.Message))
+                {
+                    try
+                    {
+                        // Log user message
                         var logUserMessageRequest = new LogChatMessageRequest
                         {
                             Content = message,
                             Role = "user"
                         };
-
-                        var logUserResult = await LogMessageAsync(accountId, logUserMessageRequest);
-                        if (!logUserResult.IsSuccess)
+                        
+                        await LogMessageAsync(accountId, logUserMessageRequest);
+                        
+                        // Log assistant message
+                        var logAssistantMessageRequest = new LogChatMessageRequest
                         {
-                            _logger.LogWarning("Failed to log user message for account {AccountId}, but continuing conversation", accountId);
-                        }
+                            Content = response.Message,
+                            Role = "assistant"
+                        };
+                        
+                        await LogMessageAsync(accountId, logAssistantMessageRequest, response.ResponseId);
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error appending message to thread {ThreadId} for account {AccountId}", threadId, accountId);
-                    response.AddError("Failed to send your message to the assistant.");
-                    return response;
-                }
-
-                // 3. Start a run with the assistant
-                string runId;
-                try
-                {
-                    runId = await _openAiService.StartRunAsync(_assistantId, threadId);
-                    _logger.LogInformation("Started run {RunId} for thread {ThreadId}", runId, threadId);
-                    
-                    // Record the run in our database
-                    await _assistantRunRepository.InsertRunAsync(new AssistantRun
+                    catch (Exception ex)
                     {
-                        AccountId = accountId,
-                        ThreadId = threadId,
-                        RunId = runId,
-                        Status = "in_progress",
-                        StartedAt = DateTime.UtcNow
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error starting assistant run for thread {ThreadId} for account {AccountId}", threadId, accountId);
-                    response.AddError("Failed to start the assistant conversation.");
-                    return response;
+                        _logger.LogWarning(ex, "Failed to log conversation messages for account {AccountId}, but continuing with response", accountId);
+                    }
                 }
 
-                // 4. Poll for run completion or action required
-                var runResponse = await _openAiService.PollRunStatusAsync(threadId, runId);
-                
-                // Update the run status in our database
-                await _assistantRunRepository.UpdateRunStatusAsync(runId, runResponse.Status);
-                
-                // 5. Process tool calls if needed
-                if (runResponse.Status == "requires_action" && 
-                    runResponse.RequiredAction?.SubmitToolOutputs?.ToolCalls?.Any() == true)
-                {
-                    _logger.LogInformation("Run {RunId} requires tool outputs", runId);
-                    
-                    var toolOutputs = new List<ToolOutput>();
-                    
-                    foreach (var toolCall in runResponse.RequiredAction.SubmitToolOutputs.ToolCalls)
-                    {
-                        if (toolCall.Type == "function" && AssistantToolTypes.IsValid(toolCall.Function.Name))
-                        {
-                            _logger.LogInformation("Processing {ToolName} call for run {RunId}", toolCall.Function.Name, runId);
-                            
-                            try
-                            {
-                                // Process the tool call request
-                                var toolOutput = await _assistantToolHandlerService.HandleToolCallAsync(accountId, 
-                                    toolCall.Function.Name, 
-                                    toolCall.Function.Arguments);
-                                
-                                toolOutputs.Add(new ToolOutput
-                                {
-                                    ToolCallId = toolCall.Id,
-                                    Output = toolOutput
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Error processing tool call {ToolName} for run {RunId}", toolCall.Function.Name, runId);
-                                toolOutputs.Add(new ToolOutput
-                                {
-                                    ToolCallId = toolCall.Id,
-                                    Output = $"{{\"error\": \"Failed to process tool: {ex.Message}\"}}"
-                                });
-                            }
-                        }
-                    }
-                    
-                    // Submit tool outputs back to OpenAI
-                    if (toolOutputs.Count > 0)
-                    {
-                        _logger.LogInformation("Submitting {Count} tool outputs for run {RunId}", toolOutputs.Count, runId);
-                        try
-                        {
-                            runResponse = await _openAiService.SubmitToolOutputsAsync(threadId, runId, toolOutputs);
-                            
-                            // Poll again for the final response
-                            runResponse = await _openAiService.PollRunStatusAsync(threadId, runId);
-                            
-                            // Update the final run status
-                            await _assistantRunRepository.UpdateRunStatusAsync(runId, runResponse.Status);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error submitting tool outputs for run {RunId}", runId);
-                            response.AddError("Failed to process tools for the assistant.");
-                            
-                            // Mark the run as failed
-                            await _assistantRunRepository.UpdateRunStatusAsync(runId, "failed");
-                            return response;
-                        }
-                    }
-                }
-                
-                // 6. Check if the run completed successfully
-                if (runResponse.Status != "completed")
-                {
-                    _logger.LogWarning("Run {RunId} did not complete successfully. Status: {Status}", runId, runResponse.Status);
-                    response.AddError($"Conversation did not complete: {runResponse.Status}");
-                    return response;
-                }
-                
-                // 7. Get the assistant's response message
-                var messages = await _openAiService.GetRunMessagesAsync(threadId, runId);
-                var assistantMessage = messages.LastOrDefault(m => m.Role.Equals(OpenAI.Assistants.MessageRole.Assistant.ToString(), StringComparison.OrdinalIgnoreCase));
-                
-                if (assistantMessage == null || assistantMessage.Content == null || !assistantMessage.Content.Any())
-                {
-                    _logger.LogWarning("No assistant message found for run {RunId}", runId);
-                    response.AddError("No response from assistant.");
-                    return response;
-                }
-                
-                // Get the text content from the message
-                string assistantContent = string.Empty;
-                foreach (var content in assistantMessage.Content)
-                {
-                    if (content.Type == "text" && content.Text != null)
-                    {
-                        assistantContent = content.Text.Value;
-                        break;
-                    }
-                }
-                
-                if (string.IsNullOrEmpty(assistantContent))
-                {
-                    _logger.LogWarning("No text content found in assistant message for run {RunId}", runId);
-                    response.AddError("No readable content in assistant response.");
-                    return response;
-                }
-                
-                // 8. Log the assistant's message to the chat history
-                var logAssistantMessageRequest = new LogChatMessageRequest
-                {
-                    Content = assistantContent,
-                    Role = "assistant"
-                };
-                
-                var logAssistantResult = await LogMessageAsync(accountId, logAssistantMessageRequest);
-                if (!logAssistantResult.IsSuccess)
-                {
-                    _logger.LogWarning("Failed to log assistant message for account {AccountId}, but continuing with response", accountId);
-                }
-                
-                // 9. Set the response
-                response.AssistantMessage = assistantContent;
-                response.RunStatus = "completed";
-                response.IsSuccess = true;
-                
-                _logger.LogInformation("Successfully completed assistant conversation for account {AccountId}", accountId);
+                return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in assistant conversation for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
-                response.AddError("An error occurred while processing your conversation with the assistant.");
+                _logger.LogError(ex, "Error in RunResponsesConversationAsync for account {AccountId}", accountId);
+                var response = new BotMessageResponse();
+                response.AddError("Failed to run conversation using the Responses API.");
+                return response;
             }
-
-            return response;
         }
     }
 } 

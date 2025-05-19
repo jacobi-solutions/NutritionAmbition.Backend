@@ -68,7 +68,8 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 // Parse the input JSON
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var mealRequest = JsonSerializer.Deserialize<LogMealToolRequest>(toolInput, options);
+                var unescapedJson = toolInput.Trim('"').Replace("\\\"", "\"");
+                var mealRequest = JsonSerializer.Deserialize<LogMealToolRequest>(unescapedJson, options);
 
                 if (string.IsNullOrEmpty(mealRequest?.Meal))
                 {
@@ -99,7 +100,8 @@ namespace NutritionAmbition.Backend.API.Services
             try
             {
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var root = JsonSerializer.Deserialize<JsonElement>(toolInput, options);
+                var unescapedJson = toolInput.Trim('"').Replace("\\\"", "\"");
+                var root = JsonSerializer.Deserialize<JsonElement>(unescapedJson, options);
 
                 int age = root.GetProperty("age").GetInt32();
                 string sex = root.GetProperty("sex").GetString();
@@ -157,7 +159,8 @@ namespace NutritionAmbition.Backend.API.Services
             try
             {
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var profileRequest = JsonSerializer.Deserialize<SetDefaultGoalProfileRequest>(toolInput, options);
+                var unescapedJson = toolInput.Trim('"').Replace("\\\"", "\"");
+                var profileRequest = JsonSerializer.Deserialize<SetDefaultGoalProfileRequest>(unescapedJson, options);
                 
                 if (profileRequest == null)
                 {
@@ -201,7 +204,8 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 // Parse the input JSON
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var request = JsonSerializer.Deserialize<dynamic>(toolInput, options);
+                var unescapedJson = toolInput.Trim('"').Replace("\\\"", "\"");
+                var request = JsonSerializer.Deserialize<dynamic>(unescapedJson, options);
 
                 // Create a request object from the dynamic data
                 var profileRequest = new OverrideDailyGoalsRequest
@@ -234,7 +238,8 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 // Parse the input JSON
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var request = JsonSerializer.Deserialize<GetUserContextRequest>(toolInput, options);
+                var unescapedJson = toolInput.Trim('"').Replace("\\\"", "\"");
+                var request = JsonSerializer.Deserialize<GetUserContextRequest>(unescapedJson, options);
 
                 // Call the service to get the user context
                 var response = await _assistantToolService.GetUserContextToolAsync(accountId, request?.TimezoneOffsetMinutes);
