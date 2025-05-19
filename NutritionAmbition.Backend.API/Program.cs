@@ -119,6 +119,7 @@ builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 // Register OpenAI Responses service
 builder.Services.AddHttpClient<OpenAiResponsesService>();
 builder.Services.AddScoped<IOpenAiResponsesService, OpenAiResponsesService>();
+builder.Services.AddSingleton<IToolDefinitionRegistry, ToolDefinitionRegistry>();
 builder.Services.AddOptions<OpenAiSettings>().Configure(options => 
 {
     options.ApiKey = openAiSettings.ApiKey;

@@ -190,5 +190,21 @@ namespace NutritionAmbition.Backend.API.Repositories
             var result = await _collection.UpdateManyAsync(filter, update);
             return result.ModifiedCount;
         }
+
+        public async Task<ChatMessage?> GetLatestAssistantMessageAsync(string accountId)
+        {
+            try
+            {
+                return await _collection
+                    .Find(x => x.AccountId == accountId && x.Role == MessageRoleTypes.Assistant)
+                    .SortByDescending(x => x.CreatedDateUtc)
+                    .FirstOrDefaultAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting latest assistant message for account {AccountId}", accountId);
+                return null;
+            }
+        }
     }
 } 

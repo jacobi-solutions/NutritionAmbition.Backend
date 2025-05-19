@@ -22,15 +22,34 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IOpenAiResponsesService
     {
         /// <summary>
-        /// Runs a conversation using the OpenAI Responses API
+        /// Runs a basic chat conversation using the OpenAI Responses API
         /// </summary>
         /// <param name="accountId">Account ID for tracking</param>
         /// <param name="userMessage">Message from the user</param>
         /// <param name="systemPrompt">System prompt to guide the conversation</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
-        /// <param name="tools">Optional list of tools to include in the request</param>
         /// <returns>A response containing the assistant's message</returns>
-        Task<BotMessageResponse> RunConversationAsync(string accountId, string userMessage, string systemPrompt, string model = "gpt-4o", List<object>? tools = null);
+        Task<BotMessageResponse> RunChatAsync(string accountId, string userMessage, string systemPrompt, string model = "gpt-4o");
+
+        /// <summary>
+        /// Runs a single function call using the OpenAI Responses API
+        /// </summary>
+        /// <param name="functionName">Name of the function to call</param>
+        /// <param name="toolInput">Input data for the function</param>
+        /// <param name="systemPrompt">System prompt to guide the conversation</param>
+        /// <param name="previousResponseId">Optional ID of the previous response for context continuity</param>
+        /// <param name="model">Model name (default: gpt-4o)</param>
+        /// <returns>A response containing the function call details</returns>
+        Task<BotMessageResponse> RunFunctionCallAsync(string functionName, object toolInput, string systemPrompt, string? previousResponseId = null, string model = "gpt-4o");
+
+        /// <summary>
+        /// Runs a conversation using raw input messages and optional tools
+        /// </summary>
+        /// <param name="inputMessages">List of pre-constructed input messages</param>
+        /// <param name="tools">Optional list of tools to include in the request</param>
+        /// <param name="model">Model name (default: gpt-4o)</param>
+        /// <returns>A response containing the assistant's message and any tool calls</returns>
+        Task<BotMessageResponse> RunConversationRawAsync(List<object> inputMessages, List<object>? tools = null, string model = "gpt-4o");
         
         /// <summary>
         /// Submits tool outputs to get a final response from the model
@@ -54,6 +73,7 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly HttpClient _httpClient;
         private readonly OpenAiSettings _openAiSettings;
         private readonly OpenAIClient _chatClient;
+        private readonly IToolDefinitionRegistry _toolDefinitionRegistry;
 
         /// <summary>
         /// Initializes a new instance of the OpenAiResponsesService class
@@ -62,33 +82,30 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="httpClient">HTTP client for API requests</param>
         /// <param name="openAiSettings">OpenAI configuration settings</param>
         /// <param name="chatClient">OpenAI client for chat completions</param>
+        /// <param name="toolDefinitionRegistry">Tool definition registry</param>
         public OpenAiResponsesService(
             ILogger<OpenAiResponsesService> logger,
             HttpClient httpClient,
             IOptions<OpenAiSettings> openAiSettings,
-            OpenAIClient chatClient)
+            OpenAIClient chatClient,
+            IToolDefinitionRegistry toolDefinitionRegistry)
         {
             _logger = logger;
             _httpClient = httpClient;
             _openAiSettings = openAiSettings.Value;
             _chatClient = chatClient;
+            _toolDefinitionRegistry = toolDefinitionRegistry;
         }
 
         /// <summary>
-        /// Runs a conversation using the OpenAI Responses API
+        /// Runs a basic chat conversation using the OpenAI Responses API
         /// </summary>
         /// <param name="accountId">Account ID for tracking</param>
         /// <param name="userMessage">Message from the user</param>
         /// <param name="systemPrompt">System prompt to guide the conversation</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
-        /// <param name="tools">Optional list of tools to include in the request</param>
         /// <returns>A response containing the assistant's message</returns>
-        public async Task<BotMessageResponse> RunConversationAsync(
-            string accountId, 
-            string userMessage, 
-            string systemPrompt, 
-            string model = "gpt-4o",
-            List<object>? tools = null)
+        public async Task<BotMessageResponse> RunChatAsync(string accountId, string userMessage, string systemPrompt, string model = "gpt-4o")
         {
             var response = new BotMessageResponse
             {
@@ -98,7 +115,233 @@ namespace NutritionAmbition.Backend.API.Services
 
             try
             {
-                _logger.LogInformation("Running conversation with OpenAI Responses API for accountId: {AccountId}", accountId);
+                _logger.LogInformation("Running basic chat conversation with OpenAI Responses API for accountId: {AccountId}", accountId);
+
+                // Build the input messages
+                var input = new List<object>
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userMessage }
+                };
+
+                // Build the request payload
+                var requestData = new Dictionary<string, object?>
+                {
+                    ["model"] = model,
+                    ["input"] = input
+                };
+
+                // Send the request and parse the response
+                var responseContent = await SendOpenAiRequestAsync(requestData);
+                if (!response.IsSuccess)
+                {
+                    return response;
+                }
+
+                // Parse the response
+                try
+                {
+                    var jsonDoc = JsonDocument.Parse(responseContent);
+                    var root = jsonDoc.RootElement;
+
+                    // Get response ID
+                    if (root.TryGetProperty(OpenAiResponseKeys.Id, out var idElement))
+                    {
+                        response.ResponseId = idElement.GetString();
+                    }
+
+                    // Parse output array
+                    if (root.TryGetProperty(OpenAiResponseKeys.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var outputItem in outputArray.EnumerateArray())
+                        {
+                            if (outputItem.TryGetProperty(OpenAiResponseKeys.Type, out var typeProp) && 
+                                typeProp.GetString() == OpenAiResponseKeys.Message)
+                            {
+                                var contentArray = outputItem.GetProperty(OpenAiResponseKeys.Content);
+                                var textElement = contentArray.EnumerateArray()
+                                    .FirstOrDefault(c => c.TryGetProperty(OpenAiResponseKeys.Text, out _));
+                                if (textElement.ValueKind == JsonValueKind.Object &&
+                                    textElement.TryGetProperty(OpenAiResponseKeys.Text, out var textContent))
+                                {
+                                    response.Message = textContent.GetString();
+                                    break; // We only need the first message
+                                }
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(response.Message))
+                    {
+                        _logger.LogWarning("No valid content found in OpenAI Responses API response: {ResponseContent}", responseContent);
+                        response.AddError("No valid content found in OpenAI response");
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Parsed response: message={Message}", response.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error parsing OpenAI Responses API response: {ResponseContent}", responseContent);
+                    response.AddError("Failed to parse OpenAI response");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling OpenAI Responses API");
+                response.AddError("An error occurred while communicating with OpenAI");
+                response.CaptureException(ex);
+            }
+
+            return response;
+        }
+
+        /// <summary>
+        /// Runs a single function call using the OpenAI Responses API
+        /// </summary>
+        /// <param name="functionName">Name of the function to call</param>
+        /// <param name="toolInput">Input data for the function</param>
+        /// <param name="systemPrompt">System prompt to guide the conversation</param>
+        /// <param name="previousResponseId">Optional ID of the previous response for context continuity</param>
+        /// <param name="model">Model name (default: gpt-4o)</param>
+        /// <returns>A response containing the function call details</returns>
+        public async Task<BotMessageResponse> RunFunctionCallAsync(string functionName, object toolInput, string systemPrompt, string? previousResponseId = null, string model = "gpt-4o")
+        {
+            var response = new BotMessageResponse
+            {
+                IsSuccess = true
+            };
+
+            try
+            {
+                _logger.LogInformation("Running function call with OpenAI Responses API for function: {FunctionName}", functionName);
+
+                // Get the tool definition from the registry
+                var tool = _toolDefinitionRegistry.GetToolByName(functionName);
+                if (tool == null)
+                {
+                    _logger.LogError("Tool definition not found for function: {FunctionName}", functionName);
+                    response.AddError($"Tool definition not found for function: {functionName}");
+                    return response;
+                }
+
+                // Build the input messages
+                var input = new List<object>
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = JsonSerializer.Serialize(toolInput) }
+                };
+
+                // Build the request payload
+                var requestData = new Dictionary<string, object?>
+                {
+                    ["model"] = model,
+                    ["input"] = input,
+                    ["tools"] = new[] { tool }
+                };
+
+                // Add previous response ID if provided
+                if (!string.IsNullOrEmpty(previousResponseId))
+                {
+                    requestData["previous_response_id"] = previousResponseId;
+                    _logger.LogDebug("Including previous_response_id: {PreviousResponseId}", previousResponseId);
+                }
+
+                // Log the full payload for debugging
+                _logger.LogDebug("Sending payload to OpenAI: {Payload}", JsonSerializer.Serialize(requestData));
+
+                // Send the request and parse the response
+                var responseContent = await SendOpenAiRequestAsync(requestData);
+                if (!response.IsSuccess)
+                {
+                    return response;
+                }
+
+                // Parse the response
+                try
+                {
+                    var jsonDoc = JsonDocument.Parse(responseContent);
+                    var root = jsonDoc.RootElement;
+
+                    // Get response ID
+                    if (root.TryGetProperty(OpenAiResponseKeys.Id, out var idElement))
+                    {
+                        response.ResponseId = idElement.GetString();
+                    }
+
+                    // Parse output array
+                    if (root.TryGetProperty(OpenAiResponseKeys.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var outputItem in outputArray.EnumerateArray())
+                        {
+                            if (outputItem.TryGetProperty(OpenAiResponseKeys.Type, out var typeProp) && 
+                                typeProp.GetString() == OpenAiResponseKeys.FunctionCall)
+                            {
+                                var toolFunctionName = outputItem.GetProperty(OpenAiResponseKeys.Name).GetString();
+                                var argumentsRaw = outputItem.GetProperty(OpenAiResponseKeys.Arguments).GetString();
+                                var callId = outputItem.TryGetProperty(OpenAiResponseKeys.CallId, out var callIdProp) ? callIdProp.GetString() : "";
+
+                                response.ToolCalls.Add(new ToolCall
+                                {
+                                    Id = callId ?? "",
+                                    Type = "function",
+                                    Function = new ToolFunctionCall
+                                    {
+                                        Name = toolFunctionName ?? "",
+                                        ArgumentsJson = argumentsRaw ?? "{}"
+                                    }
+                                });
+                                break; // We only need the first function call
+                            }
+                        }
+                    }
+
+                    if (response.ToolCalls.Count == 0)
+                    {
+                        _logger.LogWarning("No function call found in OpenAI Responses API response: {ResponseContent}", responseContent);
+                        response.AddError("No function call found in OpenAI response");
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Parsed function call: name={FunctionName}, arguments={Arguments}", 
+                            response.ToolCalls[0].Function.Name, 
+                            response.ToolCalls[0].Function.ArgumentsJson);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error parsing OpenAI Responses API response: {ResponseContent}", responseContent);
+                    response.AddError("Failed to parse OpenAI response");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling OpenAI Responses API");
+                response.AddError("An error occurred while communicating with OpenAI");
+                response.CaptureException(ex);
+            }
+
+            return response;
+        }
+
+        /// <summary>
+        /// Runs a conversation using raw input messages and optional tools
+        /// </summary>
+        /// <param name="inputMessages">List of pre-constructed input messages</param>
+        /// <param name="tools">Optional list of tools to include in the request</param>
+        /// <param name="model">Model name (default: gpt-4o)</param>
+        /// <returns>A response containing the assistant's message and any tool calls</returns>
+        public async Task<BotMessageResponse> RunConversationRawAsync(List<object> inputMessages, List<object>? tools = null, string model = "gpt-4o")
+        {
+            var response = new BotMessageResponse
+            {
+                IsSuccess = true
+            };
+
+            try
+            {
+                _logger.LogInformation("Running raw conversation with OpenAI Responses API");
 
                 // Validate tools parameter if provided
                 if (tools != null && tools.Count > 0)
@@ -156,60 +399,21 @@ namespace NutritionAmbition.Backend.API.Services
                 }
 
                 // Build the request payload
-                object requestData;
-                
-                if (tools != null && tools.Count > 0)
+                var requestData = new Dictionary<string, object?>
                 {
-                    requestData = new
-                    {
-                        model = model,
-                        input = new[]
-                        {
-                            new { role = "system", content = systemPrompt },
-                            new { role = "user", content = userMessage }
-                        },
-                        tools = tools
-                    };
-                }
-                else
+                    ["model"] = model,
+                    ["input"] = inputMessages
+                };
+
+                if (tools is { Count: > 0 })
                 {
-                    requestData = new
-                    {
-                        model = model,
-                        input = new[]
-                        {
-                            new { role = "system", content = systemPrompt },
-                            new { role = "user", content = userMessage }
-                        }
-                    };
+                    requestData["tools"] = tools;
                 }
 
-                // Serialize the payload
-                var jsonRequest = JsonSerializer.Serialize(requestData);
-                var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
-
-                // Configure the HTTP client
-                var apiUrl = $"{_openAiSettings.ApiBaseUrl.TrimEnd('/')}/{_openAiSettings.ResponsesEndpoint.TrimStart('/')}";
-
-                // Create the request message
-                var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _openAiSettings.ApiKey);
-                request.Content = content;
-
-                // Send the request and get the response
-                var httpResponse = await _httpClient.SendAsync(request);
-                
-                // Read the response content as string
-                var responseContent = await httpResponse.Content.ReadAsStringAsync();
-
-                // Log the response status code and content for debugging
-                _logger.LogDebug("OpenAI Responses API response status: {StatusCode}", httpResponse.StatusCode);
-                
-                if (!httpResponse.IsSuccessStatusCode)
+                // Send the request and parse the response
+                var responseContent = await SendOpenAiRequestAsync(requestData);
+                if (!response.IsSuccess)
                 {
-                    _logger.LogError("OpenAI Responses API error: {StatusCode}, Details: {ErrorDetails}", 
-                        httpResponse.StatusCode, responseContent);
-                    response.AddError($"OpenAI API error: {httpResponse.StatusCode}");
                     return response;
                 }
 
@@ -247,7 +451,7 @@ namespace NutritionAmbition.Backend.API.Services
                                         break;
 
                                     case OpenAiResponseKeys.FunctionCall:
-                                        var functionName = outputItem.GetProperty(OpenAiResponseKeys.Name).GetString();
+                                        var toolFunctionName = outputItem.GetProperty(OpenAiResponseKeys.Name).GetString();
                                         var argumentsRaw = outputItem.GetProperty(OpenAiResponseKeys.Arguments).GetString();
                                         var callId = outputItem.TryGetProperty(OpenAiResponseKeys.CallId, out var callIdProp) ? callIdProp.GetString() : "";
 
@@ -257,7 +461,7 @@ namespace NutritionAmbition.Backend.API.Services
                                             Type = "function",
                                             Function = new ToolFunctionCall
                                             {
-                                                Name = functionName ?? "",
+                                                Name = toolFunctionName ?? "",
                                                 ArgumentsJson = argumentsRaw ?? "{}"
                                             }
                                         });
@@ -274,7 +478,8 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                     else
                     {
-                        _logger.LogInformation("Parsed response: message={Message}, toolCalls={ToolCallCount}", response.Message, response.ToolCalls.Count);
+                        _logger.LogInformation("Parsed response: message={Message}, toolCalls={ToolCallCount}", 
+                            response.Message, response.ToolCalls.Count);
                     }
                 }
                 catch (Exception ex)
@@ -455,137 +660,41 @@ namespace NutritionAmbition.Backend.API.Services
         }
 
         /// <summary>
-        /// Submits tool outputs back to the model to get a final response
+        /// Sends a request to the OpenAI Responses API
         /// </summary>
-        /// <param name="response">The original response containing tool calls</param>
-        /// <param name="systemPrompt">The system prompt used in the original request</param>
-        /// <param name="userMessage">The user message from the original request</param>
-        /// <param name="model">The model to use for the follow-up request</param>
-        /// <returns>A task representing the asynchronous operation</returns>
-        private async Task SubmitToolOutputsAsync(
-            BotMessageResponse response, 
-            string systemPrompt, 
-            string userMessage, 
-            string model)
+        /// <param name="requestData">The request data to send</param>
+        /// <returns>The response content as a string</returns>
+        private async Task<string> SendOpenAiRequestAsync(Dictionary<string, object?> requestData)
         {
-            try
+            // Serialize the payload
+            var jsonRequest = JsonSerializer.Serialize(requestData);
+            var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
+
+            // Configure the HTTP client
+            var apiUrl = $"{_openAiSettings.ApiBaseUrl.TrimEnd('/')}/{_openAiSettings.ResponsesEndpoint.TrimStart('/')}";
+
+            // Create the request message
+            var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _openAiSettings.ApiKey);
+            request.Content = content;
+
+            // Send the request and get the response
+            var httpResponse = await _httpClient.SendAsync(request);
+            
+            // Read the response content as string
+            var responseContent = await httpResponse.Content.ReadAsStringAsync();
+
+            // Log the response status code and content for debugging
+            _logger.LogDebug("OpenAI Responses API response status: {StatusCode}", httpResponse.StatusCode);
+            
+            if (!httpResponse.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Submitting tool outputs to OpenAI for final response");
-                
-                // Check if there are any tool calls to process
-                if (response.ToolCalls == null || response.ToolCalls.Count == 0)
-                {
-                    _logger.LogInformation("No tool calls to submit, skipping submission");
-                    return;
-                }
-                
-                // Create the input list that will contain all messages including tool calls and outputs
-                var inputMessages = new List<object>
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userMessage },
-                    new { role = "assistant", content = response.Message ?? string.Empty }
-                };
-                
-                // Add tool calls and outputs to the input list
-                foreach (var toolCall in response.ToolCalls)
-                {
-                    // Add the tool call
-                    inputMessages.Add(new
-                    {
-                        type = "function_call",
-                        call_id = toolCall.Id,
-                        name = toolCall.Function.Name,
-                        arguments = toolCall.Function.ArgumentsJson
-                    });
-                    
-                    // Tool outputs would be provided by the caller after executing the tools
-                    // For now, we use a placeholder
-                    string toolOutput = "{}"; // Default empty JSON object as placeholder
-                    
-                    // In a real implementation, this would come from executing the tool
-                    // toolOutput = ExecuteTool(toolCall.Function.Name, toolCall.Function.Arguments);
-                    
-                    // Add the tool output to the input list
-                    inputMessages.Add(new
-                    {
-                        type = "function_call_output",
-                        call_id = toolCall.Id,
-                        output = toolOutput
-                    });
-                }
-                
-                // Construct the raw JSON payload for the Responses API
-                Dictionary<string, object?> requestData = new Dictionary<string, object?>
-                {
-                    ["model"] = model,
-                    ["input"] = inputMessages
-                };
-                
-                if (!string.IsNullOrEmpty(response.ResponseId))
-                {
-                    _logger.LogInformation("Including previous_response_id: {ResponseId} in the tool outputs submission", response.ResponseId);
-                    requestData["previous_response_id"] = response.ResponseId;
-                }
-                
-                // Serialize the payload
-                var jsonRequest = JsonSerializer.Serialize(requestData);
-                var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
-                
-                // Configure the HTTP client
-                var apiUrl = string.IsNullOrEmpty(_openAiSettings.ApiBaseUrl) 
-                    ? $"https://api.openai.com{_openAiSettings.ResponsesEndpoint}" 
-                    : $"{_openAiSettings.ApiBaseUrl.TrimEnd('/')}/{_openAiSettings.ResponsesEndpoint.TrimStart('/')}";
-                
-                // Create the request message
-                var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _openAiSettings.ApiKey);
-                request.Content = content;
-                
-                _logger.LogInformation("Sending follow-up request to simulate multi-turn tool call cycle under the Responses API");
-                
-                // Send the request and get the response
-                var httpResponse = await _httpClient.SendAsync(request);
-                
-                // Read the response content as string
-                var responseContent = await httpResponse.Content.ReadAsStringAsync();
-                
-                // Log the response status code
-                _logger.LogDebug("OpenAI Responses API response status: {StatusCode}", httpResponse.StatusCode);
-                
-                if (!httpResponse.IsSuccessStatusCode)
-                {
-                    _logger.LogError("OpenAI Responses API error: {StatusCode}, Details: {ErrorDetails}", 
-                        httpResponse.StatusCode, responseContent);
-                    response.AddError($"OpenAI API error: {httpResponse.StatusCode}");
-                    return;
-                }
-                
-                // Parse the response
-                try
-                {
-                    var responseObject = JsonSerializer.Deserialize<OpenAiResponsesApiResponse>(responseContent);
-                    if (responseObject?.Output?.FirstOrDefault()?.Content?.FirstOrDefault()?.Text != null)
-                    {
-                        _logger.LogInformation("Received final response after tool output submission with ID: {ResponseId}", responseObject.Id);
-                        response.Message = responseObject.Output.FirstOrDefault()?.Content?.FirstOrDefault()?.Text ?? string.Empty;
-                        response.ResponseId = responseObject.Id;
-                    }
-                    else
-                    {
-                        _logger.LogWarning("No valid content found in OpenAI Responses API response after tool submission");
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogError(ex, "Error parsing OpenAI Responses API response: {ResponseContent}", responseContent);
-                }
+                _logger.LogError("OpenAI Responses API error: {StatusCode}, Details: {ErrorDetails}", 
+                    httpResponse.StatusCode, responseContent);
+                throw new HttpRequestException($"OpenAI API error: {httpResponse.StatusCode}");
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error submitting tool outputs to OpenAI");
-                response.AddError("An error occurred while submitting tool outputs to OpenAI");
-            }
+
+            return responseContent;
         }
 
         #region Response Models

@@ -243,9 +243,9 @@ namespace NutritionAmbition.Backend.API.Services
                         {
                             _logger.LogInformation("Found {Count} branded food options for: {Name}", 
                                 searchResults.Branded.Count, brandedItem.Name);
-                            
+
                             // Use OpenAI to select the best branded food match
-                            int selectedIndex = await _openAiService.SelectBestBrandedFoodAsync(brandedItem.Name, brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
+                            int selectedIndex = await _openAiService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
                             
                             if (selectedIndex >= 0 && selectedIndex < searchResults.Branded.Count)
                             {

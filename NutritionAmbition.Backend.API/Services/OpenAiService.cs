@@ -33,6 +33,8 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly HttpClient _httpClient;
         private readonly IAccountsService _accountsService;
         private readonly IDailyGoalService _dailyGoalService;
+        private readonly IOpenAiResponsesService _openAiResponsesService;
+        private readonly List<object> _scoringTools;
 
         /// <summary>
         /// Initializes a new instance of the OpenAiService class
@@ -42,18 +44,46 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="httpClient">HttpClient for making API requests</param>
         /// <param name="accountsService">Service for account operations</param>
         /// <param name="dailyGoalService">Service for daily goals</param>
+        /// <param name="openAiResponsesService">Service for OpenAI responses</param>
         public OpenAiService(
             ILogger<OpenAiService> logger, 
             OpenAiSettings openAiSettings, 
             HttpClient httpClient,
             IAccountsService accountsService,
-            IDailyGoalService dailyGoalService)
+            IDailyGoalService dailyGoalService,
+            IOpenAiResponsesService openAiResponsesService)
         {
             _logger = logger;
             _openAiSettings = openAiSettings;
             _httpClient = httpClient;
             _accountsService = accountsService;
             _dailyGoalService = dailyGoalService;
+            _openAiResponsesService = openAiResponsesService;
+            
+            // Initialize scoring tools
+            _scoringTools = new List<object>
+            {
+                new
+                {
+                    type = "function",
+                    name = "ScoreBrandedFoods",
+                    description = "Score each branded food from 1 (worst) to 10 (best) for how closely it matches the user's description. Return a list of integers.",
+                    parameters = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            scores = new
+                            {
+                                type = "array",
+                                items = new { type = "integer", minimum = 1, maximum = 10 },
+                                description = "List of scores corresponding to each branded food item"
+                            }
+                        },
+                        required = new[] { "scores" }
+                    }
+                }
+            };
         }
 
         /// <summary>
@@ -235,59 +265,54 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogInformation("Selecting best branded food with OpenAI from {Count} options for query: {UserQuery} ({Quantity} {Unit})", 
                     brandedFoods.Count, userQuery, quantity, unit);
 
-                // Format the branded foods list for the prompt
-                var formattedOptions = new StringBuilder();
-                for (int i = 0; i < brandedFoods.Count; i++)
+                var toolInput = new
                 {
-                    var food = brandedFoods[i];
-                    formattedOptions.AppendLine($"{i + 1}. {food.BrandName} {food.FoodName}");
-                }
-
-                // Create messages for OpenAI
-                var messages = new List<object>
-                {
-                    new
-                    {
-                        role = OpenAiModelNames.SystemRole,
-                        content = SystemPrompts.BrandedFoodReranker
-                    },
-                    new
-                    {
-                        role = OpenAiModelNames.UserRole,
-                        content = $"The user said: {quantity} {unit} {userQuery}. Please score each of the following options:\n\n{formattedOptions}"
-                    }
+                    userQuery = $"{quantity} {unit} of {userQuery}",
+                    options = brandedFoods.Select(f => $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving").ToList()
                 };
 
-                // Get a response from OpenAI to determine the best match
-                var aiResponse = await GetChatResponseAsync(
-                    messages, 
-                    null, 
-                    _openAiSettings.ZeroTemperature,
-                    OpenAiModelNames.JsonObjectFormat);
-                
+                var response = await _openAiResponsesService.RunFunctionCallAsync(
+                    "ScoreBrandedFoods",
+                    toolInput,
+                    SystemPrompts.BrandedFoodReranker,
+                    "gpt-4o-mini"
+                );
+
+                if (!response.IsSuccess || response.ToolCalls == null || !response.ToolCalls.Any())
+                {
+                    _logger.LogWarning("No tool calls returned from OpenAI for branded food scoring");
+                    return -1;
+                }
+
+                var toolCall = response.ToolCalls.FirstOrDefault(tc => tc.Function.Name == "ScoreBrandedFoods");
+
+                if (toolCall == null)
+                {
+                    _logger.LogWarning("No valid ScoreBrandedFoods tool call found in response.");
+                    return -1;
+                }
+
                 try
                 {
-                    // Parse the response as a JSON array of integers
-                    var scores = JsonSerializer.Deserialize<List<int>>(aiResponse);
-                    
-                    if (scores == null || scores.Count != brandedFoods.Count)
+                    var toolOutput = JsonSerializer.Deserialize<ScoreBrandedFoodsOutput>(toolCall.Function.ArgumentsJson);
+
+                    if (toolOutput?.Scores == null || toolOutput.Scores.Count != brandedFoods.Count)
                     {
-                        _logger.LogWarning("Invalid response format from OpenAI: {Response}", aiResponse);
+                        _logger.LogWarning("Invalid score count: expected {Expected}, got {Actual}", brandedFoods.Count, toolOutput?.Scores?.Count ?? 0);
                         return -1;
                     }
 
-                    // Find the index of the highest score
-                    var maxScore = scores.Max();
-                    var selectedIndex = scores.IndexOf(maxScore);
-                    
-                    _logger.LogInformation("OpenAI scored branded food options. Highest score: {MaxScore} for option {SelectedIndex} ({FoodName})", 
-                        maxScore, selectedIndex + 1, brandedFoods[selectedIndex].FoodName);
-                    
+                    var maxScore = toolOutput.Scores.Max();
+                    var selectedIndex = toolOutput.Scores.IndexOf(maxScore);
+
+                    _logger.LogInformation("Selected branded food: index {SelectedIndex}, score {MaxScore}, name: {Name}",
+                        selectedIndex, maxScore, brandedFoods[selectedIndex].FoodName);
+
                     return selectedIndex;
                 }
-                catch (JsonException ex)
+                catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error parsing scores from OpenAI response: {Response}", aiResponse);
+                    _logger.LogError(ex, "Failed to parse tool output for ScoreBrandedFoods.");
                     return -1;
                 }
             }
@@ -580,6 +605,12 @@ namespace NutritionAmbition.Backend.API.Services
             public string GroupName { get; set; } = string.Empty;
             [JsonPropertyName("itemIndices")]
             public List<int> ItemIndices { get; set; } = new List<int>(); // 1-based indices
+        }
+
+        private class ScoreBrandedFoodsOutput
+        {
+            [JsonPropertyName("scores")]
+            public List<int> Scores { get; set; } = new List<int>();
         }
         #endregion
     }

@@ -33,115 +33,7 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly IDailyGoalService _dailyGoalService;
         private readonly ILogger<ConversationService> _logger;
         private readonly IOpenAiResponsesService _openAiResponsesService;
-        
-        private readonly List<object> _responseTools = new List<object>
-        {
-            new {
-                type = "function",
-                name = "LogMealTool",
-                description = "Log a user's meal based on a natural language description.",
-                parameters = new {
-                    type = "object",
-                    properties = new {
-                        meal = new {
-                            type = "string",
-                            description = "A description of the user's meal, such as '2 eggs and toast with orange juice'."
-                        }
-                    },
-                    required = new[] { "meal" }
-                }
-            },
-            new {
-                type = "function",
-                name = "SaveUserProfileTool",
-                description = "Save the user's basic profile information including age, sex, height, weight, and activity level. If the user gives you Height and Weight in metric units, convert them to imperial.",
-                parameters = new {
-                    type = "object",
-                    properties = new {
-                        age = new { type = "integer", description = "User's age in years" },
-                        sex = new { type = "string", description = "User's biological sex, either 'male' or 'female'" },
-                        heightFeet = new { type = "integer", description = "User's height in feet" },
-                        heightInches = new { type = "integer", description = "Additional inches beyond the feet" },
-                        weightLbs = new { type = "number", description = "User's weight in pounds" },
-                        activityLevel = new { type = "string", description = "User's activity level: sedentary, light, moderate, active, or very active" }
-                    },
-                    required = new[] { "age", "sex", "heightFeet", "heightInches", "weightLbs", "activityLevel" }
-                }
-            },
-            new {
-                type = "function",
-                name = "GetProfileAndGoalsTool",
-                description = "Fetch the user's current profile and daily nutrient goals. Use this when the user asks about their goals or profile data.",
-                parameters = new {
-                    type = "object",
-                    properties = new { },
-                    required = new string[] { }
-                }
-            },
-            new {
-                type = "function",
-                name = "SetDefaultGoalProfileTool",
-                description = "Set or update the user's default daily nutrition goals.",
-                parameters = new {
-                    type = "object",
-                    properties = new {
-                        baseCalories = new { type = "number", description = "The user's default daily calorie goal" },
-                        nutrientGoals = new {
-                            type = "array",
-                            description = "List of nutrient goals to override the system defaults",
-                            items = new {
-                                type = "object",
-                                properties = new {
-                                    nutrientName = new { type = "string", description = "The name of the nutrient" },
-                                    unit = new { type = "string", description = "The unit of measurement" },
-                                    minValue = new { type = "number", description = "Optional lower bound" },
-                                    maxValue = new { type = "number", description = "Optional upper bound" },
-                                    percentageOfCalories = new { type = "number", description = "Optional % of total calories" }
-                                },
-                                required = new[] { "nutrientName", "unit" }
-                            }
-                        }
-                    },
-                    required = new string[] { }
-                }
-            },
-            new {
-                type = "function",
-                name = "OverrideDailyGoalsTool",
-                description = "Temporarily override today's nutrition goals.",
-                parameters = new {
-                    type = "object",
-                    properties = new {
-                        newBaseCalories = new { type = "number", description = "Calorie target for today only" },
-                        nutrientGoals = new {
-                            type = "array",
-                            items = new {
-                                type = "object",
-                                properties = new {
-                                    nutrientName = new { type = "string", description = "Nutrient name" },
-                                    unit = new { type = "string", description = "Unit" },
-                                    minValue = new { type = "number" },
-                                    maxValue = new { type = "number" },
-                                    percentageOfCalories = new { type = "number" }
-                                },
-                                required = new[] { "nutrientName", "unit" }
-                            }
-                        }
-                    },
-                    required = new string[] { }
-                }
-            },
-            new {
-                type = "function",
-                name = "GetUserContextTool",
-                description = "Fetch contextual information about the user. Call this at the beginning of every thread.",
-                parameters = new {
-                    type = "object",
-                    properties = new { },
-                    required = new string[] { }
-                }
-            }
-        };
+        private readonly IToolDefinitionRegistry _toolDefinitionRegistry;
 
         public ConversationService(
             ChatMessageRepository chatMessageRepository,
@@ -150,7 +42,8 @@ namespace NutritionAmbition.Backend.API.Services
             IAssistantToolHandlerService assistantToolHandlerService,
             IDailyGoalService dailyGoalService,
             ILogger<ConversationService> logger,
-            IOpenAiResponsesService openAiResponsesService)
+            IOpenAiResponsesService openAiResponsesService,
+            IToolDefinitionRegistry toolDefinitionRegistry)
         {
             _chatMessageRepository = chatMessageRepository;
             _foodEntryRepository = foodEntryRepository;
@@ -159,6 +52,7 @@ namespace NutritionAmbition.Backend.API.Services
             _dailyGoalService = dailyGoalService;
             _logger = logger;
             _openAiResponsesService = openAiResponsesService;
+            _toolDefinitionRegistry = toolDefinitionRegistry;
         }
 
         public async Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal)
@@ -182,7 +76,7 @@ namespace NutritionAmbition.Backend.API.Services
                 try
                 {
                     // Use the OpenAI Responses API for generating the hint
-                    response = await _openAiResponsesService.RunConversationAsync(accountId, userPrompt, systemPrompt);
+                    response = await _openAiResponsesService.RunChatAsync(accountId, userPrompt, systemPrompt);
                     _logger.LogInformation("Successfully generated post-log hint for account {AccountId}", accountId);
                 }
                 catch (Exception ex)
@@ -227,7 +121,7 @@ namespace NutritionAmbition.Backend.API.Services
                 try
                 {
                     // Use the OpenAI Responses API for generating the warning
-                    response = await _openAiResponsesService.RunConversationAsync(accountId, userPrompt, systemPrompt);
+                    response = await _openAiResponsesService.RunChatAsync(accountId, userPrompt, systemPrompt);
                     _logger.LogInformation("Successfully generated anonymous warning for account {AccountId}", accountId);
                 }
                 catch (Exception ex)
@@ -420,11 +314,14 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                response = await _openAiResponsesService.RunConversationAsync(
-                    accountId, 
-                    message, 
-                    SystemPrompts.DefaultNutritionAssistant,
-                    tools: _responseTools);
+                var inputMessages = new List<object>
+                {
+                    new { role = "system", content = SystemPrompts.DefaultNutritionAssistant },
+                    new { role = "user", content = message }
+                };
+
+                response = await _openAiResponsesService.RunConversationRawAsync(inputMessages, _toolDefinitionRegistry.GetAll().ToList());
+
                 
                 // Process tool calls if present
                 if (response.ToolCalls != null && response.ToolCalls.Count > 0)

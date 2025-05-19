@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace NutritionAmbition.Backend.API.DataContracts
 {
@@ -13,14 +14,22 @@ namespace NutritionAmbition.Backend.API.DataContracts
 
     public class ToolCall
     {
+        [JsonPropertyName("id")]
         public string Id { get; set; } = string.Empty;
+
+        [JsonPropertyName("type")]
         public string Type { get; set; } = string.Empty;
+
+        [JsonPropertyName("function")]
         public ToolFunctionCall Function { get; set; } = new ToolFunctionCall();
     }
 
     public class ToolFunctionCall
     {
+        [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
+
+        [JsonPropertyName("arguments")]
         public string ArgumentsJson { get; set; } = "{}";
     }
 } 
