@@ -12,6 +12,7 @@ using MongoDB.Driver;
 using NutritionAmbition.Backend.API;
 using NutritionAmbition.Backend.API.Middleware;
 using OpenAI;
+using Swashbuckle.AspNetCore.SwaggerGen;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -189,6 +190,20 @@ else
     app.UseSwaggerUI();
     app.UseHttpsRedirection();
 }
+
+// Add a plain-text Swagger endpoint
+app.MapGet("/swagger/plain/v1/swagger.json", (ISwaggerProvider swaggerProvider) =>
+{
+    var swagger = swaggerProvider.GetSwagger("v1");
+    var json = System.Text.Json.JsonSerializer.Serialize(
+        swagger,
+        new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            WriteIndented = true
+        });
+    return Results.Text(json, "text/plain");
+});
 
 app.UseCors("AllowLocalhost");
 app.MapControllers();
