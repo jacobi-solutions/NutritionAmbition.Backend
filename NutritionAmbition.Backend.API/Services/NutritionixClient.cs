@@ -40,9 +40,9 @@ namespace NutritionAmbition.Backend.API.Services
             return await _httpClient.PostAsync(endpoint, content);
         }
 
-        public async Task<HttpResponseMessage> GetAsync(string endpoint, Dictionary<string, string> queryParams = null)
+        public async Task<HttpResponseMessage> GetAsync(string sendpoint, Dictionary<string, string> queryParams = null)
         {
-            var requestUri = endpoint;
+            var requestUri = sendpoint;
             
             if (queryParams != null && queryParams.Count > 0)
             {
