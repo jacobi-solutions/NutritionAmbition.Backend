@@ -12,7 +12,7 @@ using MongoDB.Driver;
 using NutritionAmbition.Backend.API;
 using NutritionAmbition.Backend.API.Middleware;
 using OpenAI;
-using Swashbuckle.AspNetCore.SwaggerGen;
+using Swashbuckle.AspNetCore.Swagger;
 
 var builder = WebApplication.CreateBuilder(args);
 
