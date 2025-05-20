@@ -127,7 +127,7 @@ builder.Services.AddOptions<OpenAiSettings>().Configure(options =>
     options.ApiBaseUrl = openAiSettings.ApiBaseUrl;
 });
 
-// Repos
+// Register Repos
 builder.Services.AddSingleton<AccountsRepository>();
 builder.Services.AddSingleton<FoodEntryRepository>();
 builder.Services.AddSingleton<ChatMessageRepository>();

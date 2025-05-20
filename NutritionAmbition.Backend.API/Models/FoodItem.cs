@@ -1,13 +1,22 @@
 using System.Collections.Generic;
+using NutritionAmbition.Backend.API.Constants;
 
 namespace NutritionAmbition.Backend.API.Models
 {
+    /// <summary>
+    /// Represents a food item with its nutritional information.
+    /// </summary>
     public class FoodItem
     {
         public string Name { get; set; } // Required
         public string? BrandName { get; set; }
+        
+        /// <summary>
+        /// The fully scaled quantity in user-specified units.
+        /// This value reflects the total amount to be displayed to the user.
+        /// All nutrition values are scaled according to this quantity.
+        /// </summary>
         public double Quantity { get; set; } = 0.0;
-        public double Servings { get; set; } = 1;
 
         public string Unit { get; set; } = string.Empty;
         public int Calories { get; set; } = 0;
@@ -20,6 +29,11 @@ namespace NutritionAmbition.Backend.API.Models
         public double UnsaturatedFat { get; set; } = 0.0;
         public double TransFat { get; set; } = 0.0;
         public Dictionary<string, double> Micronutrients { get; set; } = new Dictionary<string, double>();
+        
+        /// <summary>
+        /// The kind of unit used for the API serving (Weight, Volume, or Count)
+        /// </summary>
+        public UnitKind ApiServingKind { get; set; }
     }
 
 }

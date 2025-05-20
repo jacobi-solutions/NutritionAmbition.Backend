@@ -321,6 +321,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 // Get today's messages to find the last assistant message
                 var today = DateTime.UtcNow.Date;
+                // todo get last message from repo only
                 var todayMessages = await _chatMessageRepository.GetByDateAsync(accountId, today);
                 var lastAssistantMessage = todayMessages
                     .Where(m => m.Role == MessageRoleTypes.Assistant && !string.IsNullOrEmpty(m.ResponseId))

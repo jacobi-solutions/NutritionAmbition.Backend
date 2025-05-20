@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Linq;
 using NutritionAmbition.Backend.API.Attributes;
 using NutritionAmbition.Backend.API.Extensions;
+using System;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
@@ -111,6 +112,7 @@ namespace NutritionAmbition.Backend.API.Controllers
         }
 
         [HttpPost("GetDailySummary")]
+        [Obsolete("Replaced by SummaryTotals in GetDetailedSummary")]
         public async Task<ActionResult<NutritionSummaryResponse>> GetDailySummary([FromBody] DateRequest request)
         {
             if (!ModelState.IsValid)

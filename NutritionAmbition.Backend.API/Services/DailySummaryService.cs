@@ -10,6 +10,7 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IDailySummaryService
     {
         Task<DailySummaryResponse> GetDailySummaryAsync(string accountId);
+        [Obsolete("Replaced by SummaryTotals in GetDetailedSummary")]
         Task<NutritionSummaryResponse> GetDailySummaryAsync(string accountId, DateTime dateUtc);
         Task<NutritionSummaryResponse> GetWeeklySummaryAsync(string accountId, DateTime startDateUtc);
         Task<NutritionSummaryResponse> GetMonthlySummaryAsync(string accountId, DateTime startDateUtc);
@@ -72,6 +73,7 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="accountId">The account ID</param>
         /// <param name="dateUtc">The date to get the summary for (in UTC)</param>
         /// <returns>A nutrition summary response with calculated totals</returns>
+        [Obsolete("Replaced by SummaryTotals in GetDetailedSummary")]
         public async Task<NutritionSummaryResponse> GetDailySummaryAsync(string accountId, DateTime dateUtc)
         {
             var response = new NutritionSummaryResponse

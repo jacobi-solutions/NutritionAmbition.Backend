@@ -85,6 +85,28 @@ namespace NutritionAmbition.Backend.API.Services
                 // Generate food breakdowns
                 response.Foods = GenerateFoodBreakdowns(foodItems);
 
+                // Calculate totals for summary
+                var nutritionTotals = _nutritionCalculationService.CalculateTotals(foodItems);
+                
+                // Compute total fiber, sugar, and saturated fat
+                double totalFiber = foodItems.Sum(i => i.Fiber * i.Quantity);
+                double totalSugar = foodItems.Sum(i => i.Sugar * i.Quantity);
+                double totalSaturatedFat = nutritionTotals.TotalSaturatedFat;
+                
+                // Set the summary totals
+                var totals = new SummaryTotals {
+                    TotalCalories = (int)nutritionTotals.TotalCalories,
+                    Macronutrients = new MacronutrientsSummary {
+                        Protein = nutritionTotals.TotalProtein,
+                        Carbohydrates = nutritionTotals.TotalCarbohydrates,
+                        Fat = nutritionTotals.TotalFat,
+                        Fiber = totalFiber,
+                        Sugar = totalSugar,
+                        SaturatedFat = totalSaturatedFat
+                    }
+                };
+                response.SummaryTotals = totals;
+
                 response.IsSuccess = true;
             }
             catch (Exception ex)

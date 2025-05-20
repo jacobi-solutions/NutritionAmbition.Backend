@@ -274,7 +274,13 @@ namespace NutritionAmbition.Backend.API.Services
                                         
                                         foreach (var foodItem in foodItems)
                                         {
-                                            NutritionScalingHelper.ScaleItem(foodItem, brandedItem.Quantity, brandedItem.Unit);
+                                            ScaleFoodItemFromUserInput(
+                                                foodItem,
+                                                brandedItem.Quantity,
+                                                brandedItem.Unit,
+                                                brandedNutritionData.ServingQty,
+                                                brandedNutritionData.ServingUnit,
+                                                brandedNutritionData.ServingWeightGrams);
                                         }
                                         
                                         allFoodItems.AddRange(foodItems);
@@ -376,19 +382,13 @@ namespace NutritionAmbition.Backend.API.Services
 
                                                 foreach (var foodItem in foodItems)
                                                 {
-                                                    var mult = UnitScalingHelpers.ScaleFromUserInput(
-                                                        genericItem.Quantity, genericItem.Unit,
-                                                        genericNutritionData.ServingQty, genericNutritionData.ServingUnit!,
+                                                    ScaleFoodItemFromUserInput(
+                                                        foodItem,
+                                                        genericItem.Quantity,
+                                                        genericItem.Unit,
+                                                        genericNutritionData.ServingQty,
+                                                        genericNutritionData.ServingUnit,
                                                         servingWeightG);
-
-                                                    if (mult != null)
-                                                    {
-                                                        foodItem.Servings = Math.Round(mult.Value, 2);
-                                                        UnitScalingHelpers.ScaleNutrition(foodItem, foodItem.Servings);
-                                                    }
-
-                                                    // keep the original UI fields **as-is**
-                                                    NutritionScalingHelper.ScaleItem(foodItem, genericItem.Quantity, genericItem.Unit);
                                                 }
                                                 
                                                 allFoodItems.AddRange(foodItems);
@@ -429,7 +429,13 @@ namespace NutritionAmbition.Backend.API.Services
                                                 
                                                 foreach (var foodItem in foodItems)
                                                 {
-                                                    NutritionScalingHelper.ScaleItem(foodItem, genericItem.Quantity, genericItem.Unit);
+                                                    ScaleFoodItemFromUserInput(
+                                                        foodItem,
+                                                        genericItem.Quantity,
+                                                        genericItem.Unit,
+                                                        nutritionixResponse.Foods.FirstOrDefault()?.ServingQty,
+                                                        nutritionixResponse.Foods.FirstOrDefault()?.ServingUnit,
+                                                        nutritionixResponse.Foods.FirstOrDefault()?.ServingWeightGrams);
                                                 }
                                                 
                                                 allFoodItems.AddRange(foodItems);
@@ -553,68 +559,81 @@ namespace NutritionAmbition.Backend.API.Services
         private List<FoodItem> MapNutritionixResponseToFoodItem(NutritionixResponse nutritionixResponse)
         {
             var mappedFoods = new List<FoodItem>();
-
+            
+            if (nutritionixResponse?.Foods == null)
+            {
+                return mappedFoods;
+            }
+            
             foreach (var food in nutritionixResponse.Foods)
             {
-                var foodItem = new FoodItem
+                if (food != null)
                 {
-                    Name = food.FoodName,
-                    BrandName = food.BrandName,
-                    Quantity = food.ServingQty,
-                    Unit = food.ServingUnit ?? string.Empty,
-                    Calories = (int)(food.Calories ?? 0),
-                    Protein = food.Protein ?? 0,
-                    Carbohydrates = food.TotalCarbohydrate ?? 0,
-                    Fat = food.TotalFat ?? 0,
-                    Fiber = food.DietaryFiber ?? 0,
-                    Sugar = food.Sugars ?? 0,
-                    SaturatedFat = food.SaturatedFat ?? 0,
-                    UnsaturatedFat = 0, // Placeholder for now, Nutritionix doesn't provide this separately
-                    TransFat = 0, // Nutritionix doesn't provide trans fat directly
-                    Micronutrients = new Dictionary<string, double>()
-                };
-
-                // Map micronutrients from FullNutrients
-                if (food.FullNutrients != null)
-                {
-                    foreach (var nutrient in food.FullNutrients)
+                    // Map the NutritionixFood to a FoodItem without scaling
+                    var foodItem = new FoodItem
                     {
-                        // Basic mapping based on common attr_ids (can be expanded)
-                        string? nutrientName = nutrient.AttrId switch
+                        Name = food.FoodName ?? string.Empty,
+                        BrandName = food.BrandName,
+                        Quantity = food.ServingQty,
+                        Unit = food.ServingUnit ?? string.Empty,
+                        // Assign ApiServingKind using our new helper method
+                        ApiServingKind = UnitKindHelper.InferUnitKindOrDefault(food.ServingUnit),
+                        // Copy raw nutrition values directly
+                        Calories = (int)(food.Calories ?? 0),
+                        Protein = food.Protein ?? 0,
+                        Carbohydrates = food.TotalCarbohydrate ?? 0,
+                        Fat = food.TotalFat ?? 0,
+                        Fiber = food.DietaryFiber ?? 0,
+                        Sugar = food.Sugars ?? 0,
+                        SaturatedFat = food.SaturatedFat ?? 0,
+                        UnsaturatedFat = 0, // Placeholder, Nutritionix doesn't provide this
+                        TransFat = 0, // Placeholder, Nutritionix doesn't directly provide this
+                        Micronutrients = new Dictionary<string, double>()
+                    };
+                    
+                    // Map micronutrients from FullNutrients
+                    if (food.FullNutrients != null)
+                    {
+                        foreach (var nutrient in food.FullNutrients)
                         {
-                            301 => "Calcium",
-                            303 => "Iron",
-                            304 => "Magnesium",
-                            305 => "Phosphorus",
-                            306 => "Potassium",
-                            307 => "Sodium",
-                            309 => "Zinc",
-                            312 => "Copper",
-                            315 => "Manganese",
-                            317 => "Selenium",
-                            401 => "Vitamin C",
-                            404 => "Thiamin", // B1
-                            405 => "Riboflavin", // B2
-                            406 => "Niacin", // B3
-                            410 => "Pantothenic Acid", // B5
-                            415 => "Vitamin B6",
-                            417 => "Folate", // B9
-                            418 => "Vitamin B12",
-                            320 => "Vitamin A", // RAE
-                            323 => "Vitamin E",
-                            328 => "Vitamin D", // D2 + D3
-                            430 => "Vitamin K",
-                            _ => null
-                        };
+                            // Basic mapping based on common attr_ids (can be expanded)
+                            string? nutrientName = nutrient.AttrId switch
+                            {
+                                301 => "Calcium",
+                                303 => "Iron",
+                                304 => "Magnesium",
+                                305 => "Phosphorus",
+                                306 => "Potassium",
+                                307 => "Sodium",
+                                309 => "Zinc",
+                                312 => "Copper",
+                                315 => "Manganese",
+                                317 => "Selenium",
+                                401 => "Vitamin C",
+                                404 => "Thiamin", // B1
+                                405 => "Riboflavin", // B2
+                                406 => "Niacin", // B3
+                                410 => "Pantothenic Acid", // B5
+                                415 => "Vitamin B6",
+                                417 => "Folate", // B9
+                                418 => "Vitamin B12",
+                                320 => "Vitamin A", // RAE
+                                323 => "Vitamin E",
+                                328 => "Vitamin D", // D2 + D3
+                                430 => "Vitamin K",
+                                _ => null
+                            };
 
-                        if (nutrientName != null)
-                        {
-                            // Store just the amount in the micronutrients dictionary
-                            foodItem.Micronutrients[nutrientName] = nutrient.Value;
+                            if (nutrientName != null)
+                            {
+                                // Store the amount in the micronutrients dictionary
+                                foodItem.Micronutrients[nutrientName] = nutrient.Value;
+                            }
                         }
                     }
+                    
+                    mappedFoods.Add(foodItem);
                 }
-                mappedFoods.Add(foodItem);
             }
             return mappedFoods;
         }
@@ -651,12 +670,34 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     string unit = nutrient.Key switch
                     {
-                        "Vitamin D" => "IU",
-                        "Folate" => "mcg",
+                        // Use "mcg" for these vitamins
+                        "Vitamin A" => "mcg",
                         "Vitamin B12" => "mcg",
                         "Vitamin K" => "mcg",
-                        "Vitamin A" => "mcg",
-                        _ => "mg"
+                        "Vitamin D" => "mcg",
+                        "Folate" => "mcg",
+
+                        // Use "mg" for these nutrients
+                        "Calcium" => "mg",
+                        "Iron" => "mg",
+                        "Magnesium" => "mg",
+                        "Phosphorus" => "mg",
+                        "Potassium" => "mg",
+                        "Sodium" => "mg",
+                        "Zinc" => "mg",
+                        "Copper" => "mg",
+                        "Manganese" => "mg",
+                        "Thiamin" => "mg",
+                        "Riboflavin" => "mg",
+                        "Niacin" => "mg",
+                        "Pantothenic Acid" => "mg",
+                        "Vitamin B6" => "mg",
+                        "Vitamin C" => "mg",
+                        "Vitamin E" => "mg",
+                        "Selenium" => "mg",
+                        
+                        // No default fallback - if we don't know the unit, we should investigate
+                        _ => ""
                     };
                     
                     foodNutrition.Micronutrients[nutrient.Key] = new Micronutrient 
@@ -695,7 +736,56 @@ namespace NutritionAmbition.Backend.API.Services
             return string.Join(" ", queryComponents);
         }
 
-    
+        /// <summary>
+        /// Centralized helper method for scaling food items based on user input
+        /// </summary>
+        /// <param name="item">Food item to scale</param>
+        /// <param name="quantity">User's requested quantity</param>
+        /// <param name="unit">User's requested unit</param>
+        /// <param name="apiServingQty">API-provided serving quantity (from Nutritionix)</param>
+        /// <param name="apiServingUnit">API-provided serving unit (from Nutritionix)</param>
+        /// <param name="apiServingWeightG">API-provided serving weight in grams (from Nutritionix)</param>
+        private void ScaleFoodItemFromUserInput(
+            FoodItem item, 
+            double quantity, 
+            string unit, 
+            double? apiServingQty, 
+            string? apiServingUnit, 
+            double? apiServingWeightG)
+        {
+            try
+            {
+                // Skip scaling if required values are missing
+                if (string.IsNullOrWhiteSpace(apiServingUnit))
+                {
+                    _logger.LogWarning("Skipping scaling for {FoodName} - missing API serving unit", item.Name);
+                    return;
+                }
+                
+                // Calculate multiplier using standardized scaling logic
+                var multiplier = UnitScalingHelpers.ScaleFromUserInput(
+                    quantity, 
+                    unit,
+                    apiServingQty ?? 1, 
+                    apiServingUnit, 
+                    apiServingWeightG,
+                    item.ApiServingKind);
+                    
+                if (multiplier.HasValue)
+                {
+                    // Scale the nutrition values using our centralized method
+                    UnitScalingHelpers.ScaleNutrition(item, multiplier.Value);
+                    
+                    // Update the unit to match user's specified unit
+                    item.Quantity = quantity;
+                    item.Unit = unit;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error scaling food item {FoodName}", item.Name);
+            }
+        }
     }
 }
 
