@@ -167,8 +167,13 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                var messageRole = request.Role == "assistant" ? MessageRoleTypes.Assistant : 
-                                  request.Role == "tool" ? MessageRoleTypes.Tool : MessageRoleTypes.User;
+                MessageRoleTypes messageRole = request.Role switch 
+                { 
+                    OpenAiConstants.AssistantRoleLiteral => MessageRoleTypes.Assistant, 
+                    OpenAiConstants.ToolRole => MessageRoleTypes.Tool, 
+                    OpenAiConstants.SystemRoleLiteral => MessageRoleTypes.System, 
+                    _ => MessageRoleTypes.User 
+                };
 
                 var chatMessage = new ChatMessage
                 {
@@ -294,183 +299,195 @@ namespace NutritionAmbition.Backend.API.Services
 
         public async Task<BotMessageResponse> RunResponsesConversationAsync(string accountId, string message)
         {
+            var response = new BotMessageResponse();
+
             try
             {
-                var response = new BotMessageResponse();
                 _logger.LogInformation("Running responses conversation for account {AccountId}", accountId);
-                
+
                 if (string.IsNullOrEmpty(accountId))
                 {
-                    _logger.LogWarning("Cannot run responses conversation: Account ID is null or empty");
-                    
+                    _logger.LogWarning("Cannot run conversation: Account ID is null or empty");
                     response.AddError("Account ID is required.");
                     return response;
                 }
-                
+
                 if (string.IsNullOrEmpty(message))
                 {
-                    _logger.LogWarning("Cannot run responses conversation: Message is empty for account {AccountId}", accountId);
-                    response.AddError("Message content is required.");
+                    _logger.LogWarning("Cannot run conversation: Message is empty for account {AccountId}", accountId);
+                    response.AddError("Message is required.");
                     return response;
                 }
 
+                // Get today's messages to find the last assistant message
+                var today = DateTime.UtcNow.Date;
+                var todayMessages = await _chatMessageRepository.GetByDateAsync(accountId, today);
+                var lastAssistantMessage = todayMessages
+                    .Where(m => m.Role == MessageRoleTypes.Assistant && !string.IsNullOrEmpty(m.ResponseId))
+                    .OrderByDescending(m => m.LoggedDateUtc)
+                    .FirstOrDefault();
+
+                string? previousResponseId = lastAssistantMessage?.ResponseId;
+
+                // Build the input messages
                 var inputMessages = new List<object>
                 {
                     new { role = "system", content = SystemPrompts.DefaultNutritionAssistant },
                     new { role = "user", content = message }
                 };
 
-                response = await _openAiResponsesService.RunConversationRawAsync(inputMessages, _toolDefinitionRegistry.GetAll().ToList());
+                // Run the conversation with the OpenAI Responses API
+                response = await _openAiResponsesService.RunConversationRawAsync(
+                    inputMessages, 
+                    _toolDefinitionRegistry.GetAll().ToList(),
+                    previousResponseId: previousResponseId
+                );
 
-                
-                // Process tool calls if present
+                if (!response.IsSuccess)
+                {
+                    _logger.LogWarning("OpenAI Responses API returned error for account {AccountId}: {ErrorMessage}", 
+                        accountId, response.Errors.FirstOrDefault());
+                    return response;
+                }
+
+                // Check if we have any tool calls to process
                 if (response.ToolCalls != null && response.ToolCalls.Count > 0)
                 {
                     _logger.LogInformation("Processing {Count} tool calls for account {AccountId}", response.ToolCalls.Count, accountId);
                     
-                    // Create a dictionary to store tool outputs
+                    // Dictionary to store tool outputs
                     var toolOutputs = new Dictionary<string, string>();
                     
                     foreach (var toolCall in response.ToolCalls)
                     {
-                        if (toolCall.Type == "function")
+                        _logger.LogDebug("Processing tool call: {ToolName} with ID {ToolCallId}", 
+                            toolCall.Function.Name, toolCall.Id);
+
+                        // Log the tool call
+                        var toolLogResponse = await LogMessageAsync(
+                            accountId,
+                            new LogChatMessageRequest
+                            {
+                                Content = toolCall.Function.ArgumentsJson,
+                                Role = "tool"
+                            }
+                        );
+
+                        if (!toolLogResponse.IsSuccess)
                         {
-                            _logger.LogInformation("Processing tool call {ToolName} with ID {ToolCallId}", 
-                                toolCall.Function.Name, toolCall.Id);
-                            
-                            try
-                            {
-                                // Convert JsonElement to string for the tool handler
-                                string argumentsJson = toolCall.Function.ArgumentsJson;
-                                
-                                // Call the tool handler
-                                string toolOutput = await _assistantToolHandlerService.HandleToolCallAsync(
-                                    accountId, 
-                                    toolCall.Function.Name, 
-                                    argumentsJson);
-                                
-                                _logger.LogInformation("Successfully executed tool {ToolName}, output: {ToolOutput}", 
-                                    toolCall.Function.Name, toolOutput);
-                                
-                                // Store the tool output for submission
-                                toolOutputs.Add(toolCall.Id, toolOutput);
-                                
-                                // Log the tool output as a chat message
-                                try
-                                {
-                                    var logToolMessageRequest = new LogChatMessageRequest
-                                    {
-                                        Content = $"Tool: {toolCall.Function.Name}\nID: {toolCall.Id}\nOutput: {toolOutput}",
-                                        Role = "tool"
-                                    };
-                                    
-                                    await LogMessageAsync(accountId, logToolMessageRequest);
-                                    _logger.LogInformation("Successfully logged tool output as chat message for {ToolName}", 
-                                        toolCall.Function.Name);
-                                }
-                                catch (Exception logEx)
-                                {
-                                    _logger.LogWarning(logEx, "Failed to log tool output as chat message for {ToolName}, but continuing with response", 
-                                        toolCall.Function.Name);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Error processing tool call {ToolName}", toolCall.Function.Name);
-                                // Add an error message as the tool output
-                                toolOutputs.Add(toolCall.Id, JsonSerializer.Serialize(new { error = $"Error executing tool: {ex.Message}" }));
-                                
-                                // Log the error output as a chat message
-                                try
-                                {
-                                    var logToolErrorRequest = new LogChatMessageRequest
-                                    {
-                                        Content = $"Tool: {toolCall.Function.Name}\nID: {toolCall.Id}\nError: {ex.Message}",
-                                        Role = "tool"
-                                    };
-                                    
-                                    await LogMessageAsync(accountId, logToolErrorRequest);
-                                    _logger.LogInformation("Successfully logged tool error as chat message for {ToolName}", 
-                                        toolCall.Function.Name);
-                                }
-                                catch (Exception logEx)
-                                {
-                                    _logger.LogWarning(logEx, "Failed to log tool error as chat message for {ToolName}, but continuing with response", 
-                                        toolCall.Function.Name);
-                                }
-                            }
+                            _logger.LogWarning("Failed to log tool call for account {AccountId}: {ErrorMessage}", 
+                                accountId, toolLogResponse.Errors.FirstOrDefault());
+                            response.AddError($"Failed to log tool call: {toolCall.Function.Name}");
+                            return response;
                         }
-                    }
-                    
-                    // Submit tool outputs to get a final response
-                    if (toolOutputs.Count > 0)
-                    {
-                        _logger.LogInformation("Submitting {Count} tool outputs for account {AccountId}", toolOutputs.Count, accountId);
-                        
+
+                        _logger.LogInformation("Successfully logged tool call: {ToolName}", toolCall.Function.Name);
+
                         try
                         {
+                            // Execute the tool
+                            _logger.LogDebug("Executing tool: {ToolName}", toolCall.Function.Name);
+                            var toolOutput = await _assistantToolHandlerService.HandleToolCallAsync(
+                                accountId,
+                                toolCall.Function.Name,
+                                toolCall.Function.ArgumentsJson
+                            );
+
+                            // Log the tool output
+                            await LogMessageAsync(accountId, new LogChatMessageRequest { Content = toolOutput, Role = OpenAiConstants.ToolRole });
+
+                            // Store the tool output
+                            toolOutputs.Add(toolCall.Id, toolOutput);
+                            _logger.LogInformation("Successfully executed tool: {ToolName}", toolCall.Function.Name);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error executing tool {ToolName} for account {AccountId}", 
+                                toolCall.Function.Name, accountId);
+                            response.AddError($"Failed to execute tool: {toolCall.Function.Name}");
+                            return response;
+                        }
+                    }
+
+                    // Submit tool outputs if we have any
+                    if (toolOutputs.Count > 0)
+                    {
+                        _logger.LogInformation("Submitting {Count} tool outputs for account {AccountId}", 
+                            toolOutputs.Count, accountId);
+
+                        try
+                        {
+                            // Get the final response with tool outputs
                             var finalResponse = await _openAiResponsesService.SubmitToolOutputsAsync(
                                 accountId,
                                 response,
                                 toolOutputs,
                                 SystemPrompts.DefaultNutritionAssistant,
-                                message);
-                                
-                            if (finalResponse.IsSuccess && !string.IsNullOrEmpty(finalResponse.Message))
+                                message
+                            );
+
+                            if (!finalResponse.IsSuccess)
                             {
-                                _logger.LogInformation("Received final response after submitting tool outputs");
-                                response = finalResponse;
+                                _logger.LogWarning("Failed to submit tool outputs for account {AccountId}: {ErrorMessage}", 
+                                    accountId, finalResponse.Errors.FirstOrDefault());
+                                // Don't return here, continue with the original response
                             }
                             else
                             {
-                                _logger.LogWarning("Failed to get valid response after submitting tool outputs");
+                                _logger.LogInformation("Successfully received final response after tool outputs");
+                                response = finalResponse;
                             }
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Error submitting tool outputs for account {AccountId}", accountId);
+                            // Don't return here, continue with the original response
                         }
                     }
                 }
-                
-                // Log the conversation if successful
-                if (response.IsSuccess && !string.IsNullOrEmpty(response.Message))
+
+                // Log the assistant's message if it exists
+                if (!string.IsNullOrEmpty(response.Message))
                 {
-                    try
-                    {
-                        // Log user message
-                        var logUserMessageRequest = new LogChatMessageRequest
-                        {
-                            Content = message,
-                            Role = "user"
-                        };
-                        
-                        await LogMessageAsync(accountId, logUserMessageRequest);
-                        
-                        // Log assistant message
-                        var logAssistantMessageRequest = new LogChatMessageRequest
+                    _logger.LogInformation("Logging assistant message for account {AccountId}", accountId);
+
+                    var assistantLogResponse = await LogMessageAsync(
+                        accountId,
+                        new LogChatMessageRequest
                         {
                             Content = response.Message,
                             Role = "assistant"
-                        };
-                        
-                        await LogMessageAsync(accountId, logAssistantMessageRequest, response.ResponseId);
-                    }
-                    catch (Exception ex)
+                        },
+                        response.ResponseId
+                    );
+
+                    if (!assistantLogResponse.IsSuccess)
                     {
-                        _logger.LogWarning(ex, "Failed to log conversation messages for account {AccountId}, but continuing with response", accountId);
+                        _logger.LogWarning("Failed to log assistant message for account {AccountId}: {ErrorMessage}", 
+                            accountId, assistantLogResponse.Errors.FirstOrDefault());
+                        response.AddError("Failed to log assistant message.");
+                        return response;
                     }
+
+                    _logger.LogInformation("Successfully logged assistant message with ResponseId: {ResponseId}", response.ResponseId);
+                }
+                else if (response.ToolCalls == null || response.ToolCalls.Count == 0)
+                {
+                    _logger.LogWarning("No message or tool calls to log for account {AccountId}", accountId);
+                    response.AddError("No valid response content to log.");
+                    return response;
                 }
 
-                return response;
+                response.IsSuccess = true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in RunResponsesConversationAsync for account {AccountId}", accountId);
-                var response = new BotMessageResponse();
-                response.AddError("Failed to run conversation using the Responses API.");
-                return response;
+                _logger.LogError(ex, "Error running responses conversation for account {AccountId}: {ErrorMessage}", 
+                    accountId, ex.Message);
+                response.AddError("Failed to run conversation.");
             }
+
+            return response;
         }
     }
 } 

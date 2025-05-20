@@ -121,6 +121,7 @@ namespace NutritionAmbition.Backend.API.Repositories
                 _logger.LogInformation("Retrieving chat messages for account {AccountId} on {Date} (from {Start} to {End})", 
                     accountId, date.ToString("yyyy-MM-dd"), startOfDay, endOfDay);
 
+                // Role is stored as an int in MongoDB (enum value)
                 var filter = Builders<ChatMessage>.Filter.And(
                     Builders<ChatMessage>.Filter.Eq(m => m.AccountId, accountId),
                     Builders<ChatMessage>.Filter.Gte(m => m.LoggedDateUtc, startOfDay),
@@ -195,6 +196,7 @@ namespace NutritionAmbition.Backend.API.Repositories
         {
             try
             {
+                // Role is stored as an int in MongoDB (enum value)
                 return await _collection
                     .Find(x => x.AccountId == accountId && x.Role == MessageRoleTypes.Assistant)
                     .SortByDescending(x => x.CreatedDateUtc)

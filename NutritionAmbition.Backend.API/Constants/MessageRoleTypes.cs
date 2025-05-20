@@ -2,8 +2,9 @@ namespace NutritionAmbition.Backend.API.Models
 {
     public enum MessageRoleTypes
     {
-        User,
-        Assistant,
-        Tool
+        User = 0,
+        Assistant = 1,
+        Tool = 2,
+        System = 3 // reserved for future use
     }
 } 

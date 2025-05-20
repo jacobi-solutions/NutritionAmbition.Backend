@@ -7,6 +7,8 @@ namespace NutritionAmbition.Backend.API.Models
         public string Name { get; set; } // Required
         public string? BrandName { get; set; }
         public double Quantity { get; set; } = 0.0;
+        public double Servings { get; set; } = 1;
+
         public string Unit { get; set; } = string.Empty;
         public int Calories { get; set; } = 0;
         public double Protein { get; set; } = 0.0;

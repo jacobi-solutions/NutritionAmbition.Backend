@@ -1,25 +1,17 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Settings;
 using System.Text.Json.Serialization;
 using NutritionAmbition.Backend.API.Constants;
-using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.Json.Nodes;
 
 namespace NutritionAmbition.Backend.API.Services
 {
     public interface IOpenAiService
     {
         Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
-        Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods);
         Task<int> SelectBestGenericFoodAsync(string userQuery, List<CommonFoodItem> commonFoods);
         Task<List<FoodGroup>> GroupFoodItemsAsync(string originalDescription, List<FoodItem> foodItems);
         Task<string> CreateChatCompletionAsync(string systemPrompt, string userPrompt);
@@ -34,7 +26,6 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly IAccountsService _accountsService;
         private readonly IDailyGoalService _dailyGoalService;
         private readonly IOpenAiResponsesService _openAiResponsesService;
-        private readonly List<object> _scoringTools;
 
         /// <summary>
         /// Initializes a new instance of the OpenAiService class
@@ -59,31 +50,6 @@ namespace NutritionAmbition.Backend.API.Services
             _accountsService = accountsService;
             _dailyGoalService = dailyGoalService;
             _openAiResponsesService = openAiResponsesService;
-            
-            // Initialize scoring tools
-            _scoringTools = new List<object>
-            {
-                new
-                {
-                    type = "function",
-                    name = "ScoreBrandedFoods",
-                    description = "Score each branded food from 1 (worst) to 10 (best) for how closely it matches the user's description. Return a list of integers.",
-                    parameters = new
-                    {
-                        type = "object",
-                        properties = new
-                        {
-                            scores = new
-                            {
-                                type = "array",
-                                items = new { type = "integer", minimum = 1, maximum = 10 },
-                                description = "List of scores corresponding to each branded food item"
-                            }
-                        },
-                        required = new[] { "scores" }
-                    }
-                }
-            };
         }
 
         /// <summary>
@@ -119,7 +85,7 @@ namespace NutritionAmbition.Backend.API.Services
                 }
                 
                 // Handle response format
-                if (responseFormat == OpenAiModelNames.JsonObjectFormat)
+                if (responseFormat == OpenAiConstants.JsonObjectFormat)
                 {
                     requestBody["response_format"] = new Dictionary<string, string> { ["type"] = "json_object" };
                 }
@@ -193,12 +159,12 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = OpenAiModelNames.SystemRole,
+                        role = OpenAiConstants.SystemRole,
                         content = "You are a nutrition assistant. Break down the user's food description into individual food items. For each item, extract:\n\nname (string)\n\nquantity (number)\n\nunit (string)\n\nbrand (string, optional — leave empty if no brand mentioned)\n\nisBranded (boolean)\n\nRespond ONLY with a JSON object structured like this:\n\n{\n'foods': [\n{ 'name': 'coffee', 'quantity': 16, 'unit': 'oz', 'brand': '', 'isBranded': false },\n{ 'name': 'cheese pizza', 'quantity': 1, 'unit': 'large slice', 'brand': 'mellow mushroom', 'isBranded': true }\n]\n}\n\nNo extra text, no explanations."
                     },
                     new
                     {
-                        role = OpenAiModelNames.UserRole,
+                        role = OpenAiConstants.UserRole,
                         content = foodDescription
                     }
                 };
@@ -208,7 +174,7 @@ namespace NutritionAmbition.Backend.API.Services
                     messages, 
                     null, 
                     _openAiSettings.LowTemperature,
-                    OpenAiModelNames.JsonObjectFormat);
+                    OpenAiConstants.JsonObjectFormat);
                 
                 // Log the raw response
                 _logger.LogDebug("Raw OpenAI response: {RawResponse}", aiResponse);
@@ -246,84 +212,6 @@ namespace NutritionAmbition.Backend.API.Services
         }
 
         /// <summary>
-        /// Selects the best matching branded food item from a list of branded foods
-        /// </summary>
-        /// <param name="userQuery">The user's food description</param>
-        /// <param name="quantity">The quantity of the food</param>
-        /// <param name="unit">The unit of the food</param>
-        /// <param name="brandedFoods">List of potential branded food matches</param>
-        /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
-        public async Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods)
-        {
-            if (brandedFoods == null || !brandedFoods.Any())
-            {
-                return -1;
-            }
-
-            try
-            {
-                _logger.LogInformation("Selecting best branded food with OpenAI from {Count} options for query: {UserQuery} ({Quantity} {Unit})", 
-                    brandedFoods.Count, userQuery, quantity, unit);
-
-                var toolInput = new
-                {
-                    userQuery = $"{quantity} {unit} of {userQuery}",
-                    options = brandedFoods.Select(f => $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving").ToList()
-                };
-
-                var response = await _openAiResponsesService.RunFunctionCallAsync(
-                    "ScoreBrandedFoods",
-                    toolInput,
-                    SystemPrompts.BrandedFoodReranker,
-                    "gpt-4o-mini"
-                );
-
-                if (!response.IsSuccess || response.ToolCalls == null || !response.ToolCalls.Any())
-                {
-                    _logger.LogWarning("No tool calls returned from OpenAI for branded food scoring");
-                    return -1;
-                }
-
-                var toolCall = response.ToolCalls.FirstOrDefault(tc => tc.Function.Name == "ScoreBrandedFoods");
-
-                if (toolCall == null)
-                {
-                    _logger.LogWarning("No valid ScoreBrandedFoods tool call found in response.");
-                    return -1;
-                }
-
-                try
-                {
-                    var toolOutput = JsonSerializer.Deserialize<ScoreBrandedFoodsOutput>(toolCall.Function.ArgumentsJson);
-
-                    if (toolOutput?.Scores == null || toolOutput.Scores.Count != brandedFoods.Count)
-                    {
-                        _logger.LogWarning("Invalid score count: expected {Expected}, got {Actual}", brandedFoods.Count, toolOutput?.Scores?.Count ?? 0);
-                        return -1;
-                    }
-
-                    var maxScore = toolOutput.Scores.Max();
-                    var selectedIndex = toolOutput.Scores.IndexOf(maxScore);
-
-                    _logger.LogInformation("Selected branded food: index {SelectedIndex}, score {MaxScore}, name: {Name}",
-                        selectedIndex, maxScore, brandedFoods[selectedIndex].FoodName);
-
-                    return selectedIndex;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to parse tool output for ScoreBrandedFoods.");
-                    return -1;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error selecting best branded food with OpenAI for query: {UserQuery}", userQuery);
-                return -1; // Return -1 to indicate no match on error
-            }
-        }
-
-        /// <summary>
         /// Selects the best matching generic food item from a list of common foods
         /// </summary>
         /// <param name="userQuery">The user's food description</param>
@@ -354,12 +242,12 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = OpenAiModelNames.SystemRole,
+                        role = OpenAiConstants.SystemRole,
                         content = "You are a nutrition assistant helping users match their food descriptions to the best generic food from a list. Choose the food item that most closely matches based on food name and description. Only respond with the number of the best matching option. If none are a good match, respond with -1."
                     },
                     new
                     {
-                        role = OpenAiModelNames.UserRole,
+                        role = OpenAiConstants.UserRole,
                         content = $"The user reported eating: {userQuery}\n\nAvailable generic food options:\n{formattedOptions}"
                     }
                 };
@@ -440,12 +328,12 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = OpenAiModelNames.SystemRole,
+                        role = OpenAiConstants.SystemRole,
                         content = "You are a nutrition assistant helping to organize logged food items into logical groups for a meal. Group foods that belong together into logical categories (e.g., a sandwich, a complete dish, or a drink). Respond ONLY with a JSON array of objects structured like this: [{\"groupName\": \"Sandwich\", \"itemIndices\": [1, 2, 3]}, {\"groupName\": \"Side Dish\", \"itemIndices\": [4, 5]}, {\"groupName\": \"Beverage\", \"itemIndices\": [6]}]. Use 1-based indices to refer to the food items. Create descriptive but concise group names."
                     },
                     new
                     {
-                        role = OpenAiModelNames.UserRole,
+                        role = OpenAiConstants.UserRole,
                         content = $"Original description: {originalDescription}\n\nFood items:\n{formattedItems}"
                     }
                 };
@@ -455,7 +343,7 @@ namespace NutritionAmbition.Backend.API.Services
                     messages, 
                     null, 
                     _openAiSettings.LowTemperature,
-                    OpenAiModelNames.JsonObjectFormat);
+                    OpenAiConstants.JsonObjectFormat);
                 
                 // Try to parse the response to get the food groups
                 try
@@ -573,12 +461,12 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     new
                     {
-                        role = OpenAiModelNames.SystemRole,
+                        role = OpenAiConstants.SystemRole,
                         content = systemPrompt
                     },
                     new
                     {
-                        role = OpenAiModelNames.UserRole,
+                        role = OpenAiConstants.UserRole,
                         content = userPrompt
                     }
                 };
@@ -605,12 +493,6 @@ namespace NutritionAmbition.Backend.API.Services
             public string GroupName { get; set; } = string.Empty;
             [JsonPropertyName("itemIndices")]
             public List<int> ItemIndices { get; set; } = new List<int>(); // 1-based indices
-        }
-
-        private class ScoreBrandedFoodsOutput
-        {
-            [JsonPropertyName("scores")]
-            public List<int> Scores { get; set; } = new List<int>();
         }
         #endregion
     }

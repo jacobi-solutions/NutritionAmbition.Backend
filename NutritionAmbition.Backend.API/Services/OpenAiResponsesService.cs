@@ -10,9 +10,9 @@ using Microsoft.Extensions.Options;
 using NutritionAmbition.Backend.API.Constants;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Settings;
-using OpenAI;
-using OpenAI.Chat;
 using System.Text.Json.Serialization;
+using System.Linq;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -29,7 +29,7 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="systemPrompt">System prompt to guide the conversation</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
         /// <returns>A response containing the assistant's message</returns>
-        Task<BotMessageResponse> RunChatAsync(string accountId, string userMessage, string systemPrompt, string model = "gpt-4o");
+        Task<BotMessageResponse> RunChatAsync(string accountId, string userMessage, string systemPrompt, string model = OpenAiConstants.ModelGpt4o);
 
         /// <summary>
         /// Runs a single function call using the OpenAI Responses API
@@ -40,16 +40,17 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="previousResponseId">Optional ID of the previous response for context continuity</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
         /// <returns>A response containing the function call details</returns>
-        Task<BotMessageResponse> RunFunctionCallAsync(string functionName, object toolInput, string systemPrompt, string? previousResponseId = null, string model = "gpt-4o");
+        Task<BotMessageResponse> RunFunctionCallAsync(string functionName, object toolInput, string systemPrompt, string? previousResponseId = null, string model = OpenAiConstants.ModelGpt4o);
 
         /// <summary>
         /// Runs a conversation using raw input messages and optional tools
         /// </summary>
         /// <param name="inputMessages">List of pre-constructed input messages</param>
         /// <param name="tools">Optional list of tools to include in the request</param>
+        /// <param name="previousResponseId">Optional ID of the previous response for context continuity</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
         /// <returns>A response containing the assistant's message and any tool calls</returns>
-        Task<BotMessageResponse> RunConversationRawAsync(List<object> inputMessages, List<object>? tools = null, string model = "gpt-4o");
+        Task<BotMessageResponse> RunConversationRawAsync(List<object> inputMessages, List<object>? tools = null, string? previousResponseId = null, string model = OpenAiConstants.ModelGpt4o);
         
         /// <summary>
         /// Submits tool outputs to get a final response from the model
@@ -61,7 +62,17 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="userMessage">Original user message</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
         /// <returns>A response containing the assistant's final message</returns>
-        Task<BotMessageResponse> SubmitToolOutputsAsync(string accountId, BotMessageResponse initialResponse, Dictionary<string, string> toolOutputs, string systemPrompt, string userMessage, string model = "gpt-4o");
+        Task<BotMessageResponse> SubmitToolOutputsAsync(string accountId, BotMessageResponse initialResponse, Dictionary<string, string> toolOutputs, string systemPrompt, string userMessage, string model = OpenAiConstants.ModelGpt4o);
+
+        /// <summary>
+        /// Selects the best matching branded food item from a list of branded foods
+        /// </summary>
+        /// <param name="userQuery">The user's food description</param>
+        /// <param name="quantity">The quantity of the food</param>
+        /// <param name="unit">The unit of the food</param>
+        /// <param name="brandedFoods">List of potential branded food matches</param>
+        /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
+        Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods);
     }
 
     /// <summary>
@@ -72,8 +83,72 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly ILogger<OpenAiResponsesService> _logger;
         private readonly HttpClient _httpClient;
         private readonly OpenAiSettings _openAiSettings;
-        private readonly OpenAIClient _chatClient;
         private readonly IToolDefinitionRegistry _toolDefinitionRegistry;
+
+        private static readonly Action<ILogger, string, Exception?> _logNoValidContent = LoggerMessage.Define<string>(
+            LogLevel.Warning, 
+            new EventId(1001, "NoValidContent"), 
+            "No valid content found in OpenAI Responses API response: {ResponseContent}");
+
+        private static readonly Action<ILogger, string, Exception?> _logNoFunctionCall = LoggerMessage.Define<string>(
+            LogLevel.Warning, 
+            new EventId(1002, "NoFunctionCall"), 
+            "No function call found in OpenAI Responses API response: {ResponseContent}");
+
+        private static readonly Action<ILogger, Exception?> _logInvalidToolType = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1003, "InvalidToolType"), 
+            $"Tool definition missing or invalid 'type' property. Expected '{OpenAiConstants.FunctionCall}'.");
+
+        private static readonly Action<ILogger, string, Exception?> _logMissingToolProperty = LoggerMessage.Define<string>(
+            LogLevel.Warning, 
+            new EventId(1004, "MissingToolProperty"), 
+            "Tool definition missing required '{PropertyName}' property.");
+
+        private static readonly Action<ILogger, Exception?> _logMissingParameters = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1005, "MissingParameters"), 
+            "Tool function missing required 'parameters' property.");
+
+        private static readonly Action<ILogger, Exception?> _logInvalidParametersType = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1006, "InvalidParametersType"), 
+            "Tool function parameters missing or invalid 'type' property. Expected 'object'.");
+
+        private static readonly Action<ILogger, Exception?> _logMissingPropertiesObject = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1007, "MissingPropertiesObject"), 
+            "Tool function parameters missing required 'properties' object.");
+
+        private static readonly Action<ILogger, Exception?> _logNoToolOutputs = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1008, "NoToolOutputs"), 
+            "No tool outputs provided, returning original response");
+
+        private static readonly Action<ILogger, string, Exception?> _logNoOutputForToolCall = LoggerMessage.Define<string>(
+            LogLevel.Warning, 
+            new EventId(1009, "NoOutputForToolCall"), 
+            "No output provided for tool call {ToolCallId}");
+
+        private static readonly Action<ILogger, Exception?> _logNoValidContentAfterToolSubmission = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1010, "NoValidContentAfterToolSubmission"), 
+            "No valid content found in OpenAI Responses API response after tool submission");
+
+        private static readonly Action<ILogger, Exception?> _logNoToolCallsForBrandedFood = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1011, "NoToolCallsForBrandedFood"), 
+            "No tool calls returned from OpenAI for branded food scoring");
+
+        private static readonly Action<ILogger, Exception?> _logNoValidScoreBrandedFoodsTool = LoggerMessage.Define(
+            LogLevel.Warning, 
+            new EventId(1012, "NoValidScoreBrandedFoodsTool"), 
+            "No valid ScoreBrandedFoods tool call found in response.");
+
+        private static readonly Action<ILogger, int, int, Exception?> _logInvalidScoreCount = LoggerMessage.Define<int, int>(
+            LogLevel.Warning, 
+            new EventId(1013, "InvalidScoreCount"), 
+            "Invalid score count: expected {Expected}, got {Actual}");
 
         /// <summary>
         /// Initializes a new instance of the OpenAiResponsesService class
@@ -81,19 +156,16 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="logger">Logger for logging operations</param>
         /// <param name="httpClient">HTTP client for API requests</param>
         /// <param name="openAiSettings">OpenAI configuration settings</param>
-        /// <param name="chatClient">OpenAI client for chat completions</param>
         /// <param name="toolDefinitionRegistry">Tool definition registry</param>
         public OpenAiResponsesService(
             ILogger<OpenAiResponsesService> logger,
             HttpClient httpClient,
             IOptions<OpenAiSettings> openAiSettings,
-            OpenAIClient chatClient,
             IToolDefinitionRegistry toolDefinitionRegistry)
         {
             _logger = logger;
             _httpClient = httpClient;
             _openAiSettings = openAiSettings.Value;
-            _chatClient = chatClient;
             _toolDefinitionRegistry = toolDefinitionRegistry;
         }
 
@@ -105,7 +177,7 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="systemPrompt">System prompt to guide the conversation</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
         /// <returns>A response containing the assistant's message</returns>
-        public async Task<BotMessageResponse> RunChatAsync(string accountId, string userMessage, string systemPrompt, string model = "gpt-4o")
+        public async Task<BotMessageResponse> RunChatAsync(string accountId, string userMessage, string systemPrompt, string model = OpenAiConstants.ModelGpt4o)
         {
             var response = new BotMessageResponse
             {
@@ -120,8 +192,8 @@ namespace NutritionAmbition.Backend.API.Services
                 // Build the input messages
                 var input = new List<object>
                 {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userMessage }
+                    new { role = OpenAiConstants.SystemRoleLiteral, content = systemPrompt },
+                    new { role = OpenAiConstants.UserRoleLiteral, content = userMessage }
                 };
 
                 // Build the request payload
@@ -145,26 +217,26 @@ namespace NutritionAmbition.Backend.API.Services
                     var root = jsonDoc.RootElement;
 
                     // Get response ID
-                    if (root.TryGetProperty(OpenAiResponseKeys.Id, out var idElement))
+                    if (root.TryGetProperty(OpenAiConstants.Id, out var idElement))
                     {
                         response.ResponseId = idElement.GetString();
                     }
 
                     // Parse output array
-                    if (root.TryGetProperty(OpenAiResponseKeys.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
+                    if (root.TryGetProperty(OpenAiConstants.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var outputItem in outputArray.EnumerateArray())
                         {
-                            if (outputItem.TryGetProperty(OpenAiResponseKeys.Type, out var typeProp) && 
-                                typeProp.GetString() == OpenAiResponseKeys.Message)
+                            if (outputItem.TryGetProperty(OpenAiConstants.Type, out var typeProp) && 
+                                typeProp.GetString() == OpenAiConstants.Message)
                             {
-                                var contentArray = outputItem.GetProperty(OpenAiResponseKeys.Content);
+                                var contentArray = outputItem.GetProperty(OpenAiConstants.Content);
                                 var textElement = contentArray.EnumerateArray()
-                                    .FirstOrDefault(c => c.TryGetProperty(OpenAiResponseKeys.Text, out _));
+                                    .FirstOrDefault(c => c.TryGetProperty(OpenAiConstants.Text, out _));
                                 if (textElement.ValueKind == JsonValueKind.Object &&
-                                    textElement.TryGetProperty(OpenAiResponseKeys.Text, out var textContent))
+                                    textElement.TryGetProperty(OpenAiConstants.Text, out var textContent))
                                 {
-                                    response.Message = textContent.GetString();
+                                    response.Message = textContent.GetString() ?? string.Empty;
                                     break; // We only need the first message
                                 }
                             }
@@ -173,7 +245,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                     if (string.IsNullOrEmpty(response.Message))
                     {
-                        _logger.LogWarning("No valid content found in OpenAI Responses API response: {ResponseContent}", responseContent);
+                        _logNoValidContent(_logger, responseContent, null);
                         response.AddError("No valid content found in OpenAI response");
                     }
                     else
@@ -206,7 +278,7 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="previousResponseId">Optional ID of the previous response for context continuity</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
         /// <returns>A response containing the function call details</returns>
-        public async Task<BotMessageResponse> RunFunctionCallAsync(string functionName, object toolInput, string systemPrompt, string? previousResponseId = null, string model = "gpt-4o")
+        public async Task<BotMessageResponse> RunFunctionCallAsync(string functionName, object toolInput, string systemPrompt, string? previousResponseId = null, string model = OpenAiConstants.ModelGpt4o)
         {
             var response = new BotMessageResponse
             {
@@ -229,8 +301,8 @@ namespace NutritionAmbition.Backend.API.Services
                 // Build the input messages
                 var input = new List<object>
                 {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = JsonSerializer.Serialize(toolInput) }
+                    new { role = OpenAiConstants.SystemRoleLiteral, content = systemPrompt },
+                    new { role = OpenAiConstants.UserRoleLiteral, content = JsonSerializer.Serialize(toolInput) }
                 };
 
                 // Build the request payload
@@ -265,30 +337,30 @@ namespace NutritionAmbition.Backend.API.Services
                     var root = jsonDoc.RootElement;
 
                     // Get response ID
-                    if (root.TryGetProperty(OpenAiResponseKeys.Id, out var idElement))
+                    if (root.TryGetProperty(OpenAiConstants.Id, out var idElement))
                     {
                         response.ResponseId = idElement.GetString();
                     }
 
                     // Parse output array
-                    if (root.TryGetProperty(OpenAiResponseKeys.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
+                    if (root.TryGetProperty(OpenAiConstants.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var outputItem in outputArray.EnumerateArray())
                         {
-                            if (outputItem.TryGetProperty(OpenAiResponseKeys.Type, out var typeProp) && 
-                                typeProp.GetString() == OpenAiResponseKeys.FunctionCall)
+                            if (outputItem.TryGetProperty(OpenAiConstants.Type, out var typeProp) && 
+                                typeProp.GetString() == OpenAiConstants.FunctionCall)
                             {
-                                var toolFunctionName = outputItem.GetProperty(OpenAiResponseKeys.Name).GetString();
-                                var argumentsRaw = outputItem.GetProperty(OpenAiResponseKeys.Arguments).GetString();
-                                var callId = outputItem.TryGetProperty(OpenAiResponseKeys.CallId, out var callIdProp) ? callIdProp.GetString() : "";
+                                var toolFunctionName = outputItem.GetProperty(OpenAiConstants.Name).GetString();
+                                var argumentsRaw = outputItem.GetProperty(OpenAiConstants.Arguments).GetString();
+                                var callId = outputItem.TryGetProperty(OpenAiConstants.CallId, out var callIdProp) ? callIdProp.GetString() : "";
 
                                 response.ToolCalls.Add(new ToolCall
                                 {
                                     Id = callId ?? "",
-                                    Type = "function",
+                                    Type = OpenAiConstants.FunctionCall,
                                     Function = new ToolFunctionCall
                                     {
-                                        Name = toolFunctionName ?? "",
+                                        Name = toolFunctionName ?? string.Empty,
                                         ArgumentsJson = argumentsRaw ?? "{}"
                                     }
                                 });
@@ -299,7 +371,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                     if (response.ToolCalls.Count == 0)
                     {
-                        _logger.LogWarning("No function call found in OpenAI Responses API response: {ResponseContent}", responseContent);
+                        _logNoFunctionCall(_logger, responseContent, null);
                         response.AddError("No function call found in OpenAI response");
                     }
                     else
@@ -330,9 +402,10 @@ namespace NutritionAmbition.Backend.API.Services
         /// </summary>
         /// <param name="inputMessages">List of pre-constructed input messages</param>
         /// <param name="tools">Optional list of tools to include in the request</param>
+        /// <param name="previousResponseId">Optional ID of the previous response for context continuity</param>
         /// <param name="model">Model name (default: gpt-4o)</param>
         /// <returns>A response containing the assistant's message and any tool calls</returns>
-        public async Task<BotMessageResponse> RunConversationRawAsync(List<object> inputMessages, List<object>? tools = null, string model = "gpt-4o")
+        public async Task<BotMessageResponse> RunConversationRawAsync(List<object> inputMessages, List<object>? tools = null, string? previousResponseId = null, string model = OpenAiConstants.ModelGpt4o)
         {
             var response = new BotMessageResponse
             {
@@ -353,39 +426,39 @@ namespace NutritionAmbition.Backend.API.Services
                     {
                         if (tool is JsonElement jsonElement)
                         {
-                            if (!jsonElement.TryGetProperty(OpenAiResponseKeys.Type, out var typeElement) || 
-                                typeElement.GetString() != "function")
+                            if (!jsonElement.TryGetProperty(OpenAiConstants.Type, out var typeElement) || 
+                                typeElement.GetString() != OpenAiConstants.FunctionCall)
                             {
-                                _logger.LogWarning("Tool definition missing or invalid 'type' property. Expected 'function'.");
+                                _logInvalidToolType(_logger, null);
                             }
                             
-                            if (!jsonElement.TryGetProperty("function", out var functionElement))
+                            if (!jsonElement.TryGetProperty(OpenAiConstants.FunctionCall, out var functionElement))
                             {
-                                _logger.LogWarning("Tool definition missing required 'function' property.");
+                                _logMissingToolProperty(_logger, OpenAiConstants.FunctionCall, null);
                                 continue;
                             }
                             
-                            if (!functionElement.TryGetProperty(OpenAiResponseKeys.Name, out var nameElement) || 
+                            if (!functionElement.TryGetProperty(OpenAiConstants.Name, out var nameElement) || 
                                 string.IsNullOrEmpty(nameElement.GetString()))
                             {
-                                _logger.LogWarning("Tool function missing required 'name' property.");
+                                _logMissingToolProperty(_logger, OpenAiConstants.Name, null);
                             }
                             
                             if (!functionElement.TryGetProperty("parameters", out var parametersElement))
                             {
-                                _logger.LogWarning("Tool function missing required 'parameters' property.");
+                                _logMissingParameters(_logger, null);
                             }
                             else
                             {
-                                if (!parametersElement.TryGetProperty(OpenAiResponseKeys.Type, out var paramTypeElement) || 
+                                if (!parametersElement.TryGetProperty(OpenAiConstants.Type, out var paramTypeElement) || 
                                     paramTypeElement.GetString() != "object")
                                 {
-                                    _logger.LogWarning("Tool function parameters missing or invalid 'type' property. Expected 'object'.");
+                                    _logInvalidParametersType(_logger, null);
                                 }
                                 
                                 if (!parametersElement.TryGetProperty("properties", out _))
                                 {
-                                    _logger.LogWarning("Tool function parameters missing required 'properties' object.");
+                                    _logMissingPropertiesObject(_logger, null);
                                 }
                             }
                         }
@@ -410,6 +483,13 @@ namespace NutritionAmbition.Backend.API.Services
                     requestData["tools"] = tools;
                 }
 
+                // forward the threading token so the model keeps context
+                if (!string.IsNullOrEmpty(previousResponseId))
+                {
+                    requestData["previous_response_id"] = previousResponseId;
+                    _logger.LogDebug("Including previous_response_id: {PreviousResponseId}", previousResponseId);
+                }
+
                 // Send the request and parse the response
                 var responseContent = await SendOpenAiRequestAsync(requestData);
                 if (!response.IsSuccess)
@@ -424,44 +504,44 @@ namespace NutritionAmbition.Backend.API.Services
                     var root = jsonDoc.RootElement;
 
                     // Get response ID
-                    if (root.TryGetProperty(OpenAiResponseKeys.Id, out var idElement))
+                    if (root.TryGetProperty(OpenAiConstants.Id, out var idElement))
                     {
                         response.ResponseId = idElement.GetString();
                     }
 
                     // Parse output array
-                    if (root.TryGetProperty(OpenAiResponseKeys.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
+                    if (root.TryGetProperty(OpenAiConstants.Output, out var outputArray) && outputArray.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var outputItem in outputArray.EnumerateArray())
                         {
-                            if (outputItem.TryGetProperty(OpenAiResponseKeys.Type, out var typeProp))
+                            if (outputItem.TryGetProperty(OpenAiConstants.Type, out var typeProp))
                             {
                                 var type = typeProp.GetString();
                                 switch (type)
                                 {
-                                    case OpenAiResponseKeys.Message:
-                                        var contentArray = outputItem.GetProperty(OpenAiResponseKeys.Content);
+                                    case OpenAiConstants.Message:
+                                        var contentArray = outputItem.GetProperty(OpenAiConstants.Content);
                                         var textElement = contentArray.EnumerateArray()
-                                            .FirstOrDefault(c => c.TryGetProperty(OpenAiResponseKeys.Text, out _));
+                                            .FirstOrDefault(c => c.TryGetProperty(OpenAiConstants.Text, out _));
                                         if (textElement.ValueKind == JsonValueKind.Object &&
-                                            textElement.TryGetProperty(OpenAiResponseKeys.Text, out var textContent))
+                                            textElement.TryGetProperty(OpenAiConstants.Text, out var textContent))
                                         {
                                             response.Message = textContent.GetString();
                                         }
                                         break;
 
-                                    case OpenAiResponseKeys.FunctionCall:
-                                        var toolFunctionName = outputItem.GetProperty(OpenAiResponseKeys.Name).GetString();
-                                        var argumentsRaw = outputItem.GetProperty(OpenAiResponseKeys.Arguments).GetString();
-                                        var callId = outputItem.TryGetProperty(OpenAiResponseKeys.CallId, out var callIdProp) ? callIdProp.GetString() : "";
+                                    case OpenAiConstants.FunctionCall:
+                                        var toolFunctionName = outputItem.GetProperty(OpenAiConstants.Name).GetString();
+                                        var argumentsRaw = outputItem.GetProperty(OpenAiConstants.Arguments).GetString();
+                                        var callId = outputItem.TryGetProperty(OpenAiConstants.CallId, out var callIdProp) ? callIdProp.GetString() : "";
 
                                         response.ToolCalls.Add(new ToolCall
                                         {
                                             Id = callId ?? "",
-                                            Type = "function",
+                                            Type = OpenAiConstants.FunctionCall,
                                             Function = new ToolFunctionCall
                                             {
-                                                Name = toolFunctionName ?? "",
+                                                Name = toolFunctionName ?? string.Empty,
                                                 ArgumentsJson = argumentsRaw ?? "{}"
                                             }
                                         });
@@ -473,8 +553,8 @@ namespace NutritionAmbition.Backend.API.Services
 
                     if (string.IsNullOrEmpty(response.Message) && response.ToolCalls.Count == 0)
                     {
-                        _logger.LogWarning("No valid content found in OpenAI Responses API response: {ResponseContent}", responseContent);
-                        response.AddError("No valid content found in OpenAI response");
+                        _logNoValidContentAfterToolSubmission(_logger, null);
+                        response.AddError("No valid content found in OpenAI response after tool submission");
                     }
                     else
                     {
@@ -514,7 +594,7 @@ namespace NutritionAmbition.Backend.API.Services
             Dictionary<string, string> toolOutputs, 
             string systemPrompt, 
             string userMessage, 
-            string model = "gpt-4o")
+            string model = OpenAiConstants.ModelGpt4o)
         {
             var response = new BotMessageResponse
             {
@@ -536,18 +616,18 @@ namespace NutritionAmbition.Backend.API.Services
                 }
                 
                 // Check if there are any tool outputs to process
-                if (toolOutputs == null || toolOutputs.Count == 0)
+                if (toolOutputs == null || !toolOutputs.Any())
                 {
-                    _logger.LogWarning("No tool outputs provided, returning original response");
+                    _logNoToolOutputs(_logger, null);
                     return initialResponse;
                 }
 
                 // Create a new input messages list that will contain all messages including tool calls and outputs
                 var inputMessages = new List<object>
                 {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userMessage },
-                    new { role = "assistant", content = initialResponse.Message ?? string.Empty }
+                    new { role = OpenAiConstants.SystemRoleLiteral, content = systemPrompt },
+                    new { role = OpenAiConstants.UserRoleLiteral, content = userMessage },
+                    new { role = OpenAiConstants.AssistantRoleLiteral, content = initialResponse.Message ?? string.Empty }
                 };
                 
                 // Add each tool call as a message object with type=function_call
@@ -556,7 +636,7 @@ namespace NutritionAmbition.Backend.API.Services
                     // Add the tool call
                     inputMessages.Add(new
                     {
-                        type = "function_call",
+                        type = OpenAiConstants.FunctionCallType,
                         call_id = toolCall.Id,
                         name = toolCall.Function.Name,
                         arguments = toolCall.Function.ArgumentsJson
@@ -567,17 +647,17 @@ namespace NutritionAmbition.Backend.API.Services
                     {
                         inputMessages.Add(new
                         {
-                            type = "function_call_output",
+                            type = OpenAiConstants.FunctionCallOutputType,
                             call_id = toolCall.Id,
                             output = toolOutput
                         });
                     }
                     else
                     {
-                        _logger.LogWarning("No output provided for tool call {ToolCallId}", toolCall.Id);
+                        _logNoOutputForToolCall(_logger, toolCall.Id, null);
                         inputMessages.Add(new
                         {
-                            type = "function_call_output",
+                            type = OpenAiConstants.FunctionCallOutputType,
                             call_id = toolCall.Id,
                             output = "{}"
                         });
@@ -640,7 +720,8 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                     else
                     {
-                        _logger.LogWarning("No valid content found in OpenAI Responses API response after tool submission");
+                        _logNoValidContentAfterToolSubmission(_logger, null);
+                        response.AddError("No valid content found in OpenAI response after tool submission");
                     }
                 }
                 catch (JsonException ex)
@@ -697,6 +778,85 @@ namespace NutritionAmbition.Backend.API.Services
             return responseContent;
         }
 
+        /// <summary>
+        /// Selects the best matching branded food item from a list of branded foods
+        /// </summary>
+        /// <param name="userQuery">The user's food description</param>
+        /// <param name="quantity">The quantity of the food</param>
+        /// <param name="unit">The unit of the food</param>
+        /// <param name="brandedFoods">List of potential branded food matches</param>
+        /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
+        public async Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods)
+        {
+            if (brandedFoods == null || !brandedFoods.Any())
+            {
+                return -1;
+            }
+
+            try
+            {
+                _logger.LogInformation("Selecting best branded food with OpenAI from {Count} options for query: {UserQuery} ({Quantity} {Unit})", 
+                    brandedFoods.Count, userQuery, quantity, unit);
+
+                var toolInput = new
+                {
+                    userQuery = $"{quantity} {unit} of {userQuery}",
+                    options = brandedFoods.Select(f => $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving").ToList()
+                };
+
+                var response = await RunFunctionCallAsync(
+                    "ScoreBrandedFoods",
+                    toolInput,
+                    SystemPrompts.BrandedFoodReranker,
+                    null,
+                    OpenAiConstants.ModelGpt4oMini
+                );
+
+                if (response.ToolCalls.Count == 0)
+                {
+                    _logNoToolCallsForBrandedFood(_logger, null);
+                    return -1;
+                }
+
+                // We need to find the tool call for our ScoreBrandedFoods function
+                var scoreTool = response.ToolCalls.FirstOrDefault(t => t.Function.Name == "ScoreBrandedFoods");
+                if (scoreTool == null)
+                {
+                    _logNoValidScoreBrandedFoodsTool(_logger, null);
+                    return -1;
+                }
+
+                try
+                {
+                    var toolOutput = JsonSerializer.Deserialize<ScoreBrandedFoodsOutput>(scoreTool.Function.ArgumentsJson);
+
+                    if (toolOutput?.Scores == null || toolOutput.Scores.Count != brandedFoods.Count)
+                    {
+                        _logInvalidScoreCount(_logger, brandedFoods.Count, toolOutput?.Scores?.Count ?? 0, null);
+                        return -1;
+                    }
+
+                    var maxScore = toolOutput.Scores.Max();
+                    var selectedIndex = toolOutput.Scores.IndexOf(maxScore);
+
+                    _logger.LogInformation("Selected branded food: index {SelectedIndex}, score {MaxScore}, name: {Name}",
+                        selectedIndex, maxScore, brandedFoods[selectedIndex].FoodName);
+
+                    return selectedIndex;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to parse tool output for ScoreBrandedFoods.");
+                    return -1;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error selecting best branded food with OpenAI for query: {UserQuery}", userQuery);
+                return -1; // Return -1 to indicate no match on error
+            }
+        }
+
         #region Response Models
 
         /// <summary>
@@ -707,13 +867,13 @@ namespace NutritionAmbition.Backend.API.Services
             /// <summary>
             /// Response ID from OpenAI
             /// </summary>
-            [JsonPropertyName(OpenAiResponseKeys.Id)]
+            [JsonPropertyName(OpenAiConstants.Id)]
             public string Id { get; set; } = string.Empty;
             
             /// <summary>
             /// Output from the model
             /// </summary>
-            [JsonPropertyName(OpenAiResponseKeys.Output)]
+            [JsonPropertyName(OpenAiConstants.Output)]
             public List<OpenAiResponseOutput> Output { get; set; } = new();
 
             /// <summary>
@@ -735,7 +895,7 @@ namespace NutritionAmbition.Backend.API.Services
             /// <summary>
             /// Content array containing the response
             /// </summary>
-            [JsonPropertyName(OpenAiResponseKeys.Content)]
+            [JsonPropertyName(OpenAiConstants.Content)]
             public OpenAiResponseContent[] Content { get; set; } = Array.Empty<OpenAiResponseContent>();
             
             /// <summary>
@@ -752,13 +912,13 @@ namespace NutritionAmbition.Backend.API.Services
             /// <summary>
             /// Type of content (typically "text")
             /// </summary>
-            [JsonPropertyName(OpenAiResponseKeys.Type)]
+            [JsonPropertyName(OpenAiConstants.Type)]
             public string Type { get; set; } = string.Empty;
 
             /// <summary>
             /// The actual text response
             /// </summary>
-            [JsonPropertyName(OpenAiResponseKeys.Text)]
+            [JsonPropertyName(OpenAiConstants.Text)]
             public string Text { get; set; } = string.Empty;
         }
 
@@ -781,6 +941,12 @@ namespace NutritionAmbition.Backend.API.Services
             /// Total tokens used (input + output)
             /// </summary>
             public int TotalTokens { get; set; }
+        }
+
+        private class ScoreBrandedFoodsOutput
+        {
+            [JsonPropertyName("scores")]
+            public List<int> Scores { get; set; } = new List<int>();
         }
 
         #endregion

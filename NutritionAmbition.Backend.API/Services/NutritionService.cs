@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Constants;
+using NutritionAmbition.Backend.API.Helpers;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -20,6 +21,7 @@ namespace NutritionAmbition.Backend.API.Services
     {
         private readonly INutritionixService _nutritionixService;
         private readonly IOpenAiService _openAiService;
+        private readonly IOpenAiResponsesService _openAiResponsesService;
         private readonly IFoodEntryService _foodEntryService;
         private readonly ILogger<NutritionService> _logger;
         private readonly NutritionixClient _nutritionixClient;
@@ -29,6 +31,7 @@ namespace NutritionAmbition.Backend.API.Services
         public NutritionService(
             INutritionixService nutritionixService,
             IOpenAiService openAiService,
+            IOpenAiResponsesService openAiResponsesService,
             IFoodEntryService foodEntryService, 
             ILogger<NutritionService> logger,
             NutritionixClient nutritionixClient,
@@ -37,6 +40,7 @@ namespace NutritionAmbition.Backend.API.Services
         {
             _nutritionixService = nutritionixService;
             _openAiService = openAiService;
+            _openAiResponsesService = openAiResponsesService;
             _foodEntryService = foodEntryService;
             _logger = logger;
             _nutritionixClient = nutritionixClient;
@@ -245,7 +249,7 @@ namespace NutritionAmbition.Backend.API.Services
                                 searchResults.Branded.Count, brandedItem.Name);
 
                             // Use OpenAI to select the best branded food match
-                            int selectedIndex = await _openAiService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
+                            int selectedIndex = await _openAiResponsesService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
                             
                             if (selectedIndex >= 0 && selectedIndex < searchResults.Branded.Count)
                             {
@@ -270,10 +274,7 @@ namespace NutritionAmbition.Backend.API.Services
                                         
                                         foreach (var foodItem in foodItems)
                                         {
-                                            foodItem.Quantity = brandedItem.Quantity > 0 ? brandedItem.Quantity : foodItem.Quantity;
-                                            foodItem.Unit = string.IsNullOrWhiteSpace(foodItem.Unit) && !string.IsNullOrWhiteSpace(brandedItem.Unit)
-                                                ? brandedItem.Unit
-                                                : foodItem.Unit;
+                                            NutritionScalingHelper.ScaleItem(foodItem, brandedItem.Quantity, brandedItem.Unit);
                                         }
                                         
                                         allFoodItems.AddRange(foodItems);
@@ -368,12 +369,26 @@ namespace NutritionAmbition.Backend.API.Services
                                                 
                                                 var foodItems = MapNutritionixResponseToFoodItem(nutritionixResponse);
                                                 
+                                                // Obtain Nutritionix "serving weight" once
+                                                var servingWeightG = genericNutritionData.ServingWeightGrams
+                                                                ?? UnitScalingHelpers.TryInferMassFromVolume(
+                                                                        genericNutritionData.ServingUnit);
+
                                                 foreach (var foodItem in foodItems)
                                                 {
-                                                    foodItem.Quantity = genericItem.Quantity > 0 ? genericItem.Quantity : foodItem.Quantity;
-                                                    foodItem.Unit = string.IsNullOrWhiteSpace(foodItem.Unit) && !string.IsNullOrWhiteSpace(genericItem.Unit)
-                                                        ? genericItem.Unit
-                                                        : foodItem.Unit;
+                                                    var mult = UnitScalingHelpers.ScaleFromUserInput(
+                                                        genericItem.Quantity, genericItem.Unit,
+                                                        genericNutritionData.ServingQty, genericNutritionData.ServingUnit!,
+                                                        servingWeightG);
+
+                                                    if (mult != null)
+                                                    {
+                                                        foodItem.Servings = Math.Round(mult.Value, 2);
+                                                        UnitScalingHelpers.ScaleNutrition(foodItem, foodItem.Servings);
+                                                    }
+
+                                                    // keep the original UI fields **as-is**
+                                                    NutritionScalingHelper.ScaleItem(foodItem, genericItem.Quantity, genericItem.Unit);
                                                 }
                                                 
                                                 allFoodItems.AddRange(foodItems);
@@ -414,10 +429,7 @@ namespace NutritionAmbition.Backend.API.Services
                                                 
                                                 foreach (var foodItem in foodItems)
                                                 {
-                                                    foodItem.Quantity = genericItem.Quantity > 0 ? genericItem.Quantity : foodItem.Quantity;
-                                                    foodItem.Unit = string.IsNullOrWhiteSpace(foodItem.Unit) && !string.IsNullOrWhiteSpace(genericItem.Unit)
-                                                        ? genericItem.Unit
-                                                        : foodItem.Unit;
+                                                    NutritionScalingHelper.ScaleItem(foodItem, genericItem.Quantity, genericItem.Unit);
                                                 }
                                                 
                                                 allFoodItems.AddRange(foodItems);
