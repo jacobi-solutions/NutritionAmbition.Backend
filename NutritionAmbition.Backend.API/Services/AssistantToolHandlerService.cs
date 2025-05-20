@@ -80,8 +80,19 @@ namespace NutritionAmbition.Backend.API.Services
                 // Call the service to process the meal
                 var response = await _assistantToolService.LogMealToolAsync(accountId, mealRequest.Meal);
 
-                // Return the serialized response
-                return JsonSerializer.Serialize(response);
+                try
+                {
+                    var serializeOptions = new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    };
+                    return JsonSerializer.Serialize(response, serializeOptions);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error serializing LogMealTool response");
+                    return "{}";
+                }
             }
             catch (JsonException ex)
             {
