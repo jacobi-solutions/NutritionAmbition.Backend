@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.DataContracts.Profile;
+using NutritionAmbition.Backend.API.DataContracts.Tools;
 using NutritionAmbition.Backend.API.Models;
 using System.Linq;
 using NutritionAmbition.Backend.API.Constants;
@@ -64,7 +65,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 if (!nutritionResponse.IsSuccess)
                 {
-                    _logger.LogWarning("Failed to process meal for account {AccountId}: {Errors}", 
+                    _logger.LogWarning("Failed to process meal for account {AccountId}: {Errors}",
                         accountId, string.Join(", ", nutritionResponse.Errors.Select(e => e.ErrorMessage)));
                     response.AddError("Failed to process meal. Please try a more specific description.");
                     return response;
@@ -78,17 +79,30 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                // Log that the meal was already processed by the nutrition service
                 _logger.LogInformation("Meal has been processed and saved via NutritionService for account {AccountId}", accountId);
 
-                // Calculate total calories with proper casting and rounding
+                // Calculate total calories
                 int totalCalories = (int)Math.Round(nutritionResponse.Foods.Sum(f => f.Calories));
 
-                // Generate a summary response
-                response.Summary = $"Logged your meal: {meal} ({totalCalories} kcal).";
+                // Populate structured response
+                response.MealName = meal;
+                response.Calories = totalCalories;
+                response.LoggedAtUtc = DateTime.UtcNow;
+
+                var firstFood = nutritionResponse.Foods.FirstOrDefault();
+                if (firstFood != null)
+                {
+                    response.Nutrients = new NutrientsDto
+                    {
+                        Protein = (float)(firstFood.Macronutrients?.Protein?.Amount ?? 0),
+                        Fat = (float)(firstFood.Macronutrients?.Fat?.Amount ?? 0),
+                        Carbs = (float)(firstFood.Macronutrients?.Carbohydrates?.Amount ?? 0)
+                    };
+                }
+
                 response.IsSuccess = true;
 
-                _logger.LogInformation("Successfully logged meal for account {AccountId}: {Summary}", accountId, response.Summary);
+                _logger.LogInformation("Successfully logged meal for account {AccountId}", accountId);
             }
             catch (Exception ex)
             {
