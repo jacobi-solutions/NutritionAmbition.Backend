@@ -17,7 +17,7 @@ namespace NutritionAmbition.Backend.API.Helpers
         /* ---------- 1. quick-and-dirty unit → grams lookup ---------- */
 
         // Strict mass units (already grams)
-        private static readonly Dictionary<string,double> MassUnits = new(StringComparer.OrdinalIgnoreCase)
+        private static readonly Dictionary<string, double> MassUnits = new(StringComparer.OrdinalIgnoreCase)
         {
             { "g", 1 }, { "gram", 1 }, { "grams", 1 },
             { "kg", 1000 },
@@ -26,7 +26,7 @@ namespace NutritionAmbition.Backend.API.Helpers
         };
 
         // Volumetric units → millilitres  (≈ grams for water-like liquids)
-        private static readonly Dictionary<string,double> VolumeUnits = new(StringComparer.OrdinalIgnoreCase)
+        private static readonly Dictionary<string, double> VolumeUnits = new(StringComparer.OrdinalIgnoreCase)
         {
             { "ml", 1 }, { "milliliter", 1 }, { "milliliters", 1 },
             { "l", 1000 }, { "liter", 1000 }, { "liters", 1000 },
@@ -66,10 +66,10 @@ namespace NutritionAmbition.Backend.API.Helpers
             // crude regex: pull the first number in parentheses → assume fl oz or ml
             var span = servingUnit.AsSpan();
             int parenStart = servingUnit.IndexOf('(');
-            int parenEnd   = servingUnit.IndexOf(')');
+            int parenEnd = servingUnit.IndexOf(')');
             if (parenStart >= 0 && parenEnd > parenStart)
             {
-                var inner = servingUnit[(parenStart+1)..parenEnd];
+                var inner = servingUnit[(parenStart + 1)..parenEnd];
                 // e.g. "8 fl oz"  or "240 ml"
                 var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2 &&
@@ -115,11 +115,15 @@ namespace NutritionAmbition.Backend.API.Helpers
             UnitKind apiServingKind = UnitKind.Weight
         )
         {
-            string normalizedUserUnit = userUnit?.Trim().ToLowerInvariant();
+            var normalizedUserUnit = NormalizeUnit(userUnit, apiServingKind);
+            var normalizedServingUnit = NormalizeUnit(servingUnit); // API units don’t need disambiguation
 
-            if (normalizedUserUnit == "oz" && apiServingKind == UnitKind.Volume)
-                normalizedUserUnit = "fl oz";
 
+            if (UnitsMatch(normalizedUserUnit, normalizedServingUnit))
+            {
+                return userQty / servingQty;
+            }
+            
             // Case 1: direct unit match (ignores any parentheses in servingUnit)
             if (UnitsMatch(normalizedUserUnit, servingUnit))
             {
@@ -165,38 +169,38 @@ namespace NutritionAmbition.Backend.API.Helpers
         /// </summary>
         public static void ScaleNutrition(FoodItem item, double factor, ILogger logger = null)
         {
-            
-            item.Calories       *= factor;
-            item.Protein        *= factor;
-            item.Carbohydrates  *= factor;
-            item.Fat            *= factor;
-            item.Fiber          *= factor;
-            item.Sugar          *= factor;
-            item.SaturatedFat   *= factor;
+
+            item.Calories *= factor;
+            item.Protein *= factor;
+            item.Carbohydrates *= factor;
+            item.Fat *= factor;
+            item.Fiber *= factor;
+            item.Sugar *= factor;
+            item.SaturatedFat *= factor;
             item.UnsaturatedFat *= factor;
-            item.TransFat       *= factor;
+            item.TransFat *= factor;
 
             // micronutrients
             var keys = new List<string>(item.Micronutrients.Keys);
             foreach (var k in keys)
                 item.Micronutrients[k] = item.Micronutrients[k] * factor;
-                
+
             // Scale OriginalScaledQuantity by the factor, then normalize to 1
             double scaledQuantity = item.Quantity * factor;
-            
+
             // Set OriginalScaledQuantity to 1 to indicate this item is fully scaled
             // Store the original scaled OriginalScaledQuantity in a new property if needed for display
             item.Quantity = scaledQuantity;
-            
-           
+
+
         }
-        
+
         /// <summary>
         /// This method constructs a FoodItem and immediately scales its nutrition values based on the provided user OriginalScaledQuantity and unit.
         /// </summary>
         public static FoodItem CreateFoodItemWithScaledNutrition(
-            NutritionixFood food, 
-            double userQuantity, 
+            NutritionixFood food,
+            double userQuantity,
             string userUnit,
             UnitKind apiServingKind,
             ILogger logger = null)
@@ -221,7 +225,7 @@ namespace NutritionAmbition.Backend.API.Helpers
                 TransFat = 0, // Nutritionix doesn't provide trans fat directly
                 Micronutrients = new Dictionary<string, double>()
             };
-            
+
             // Map micronutrients from FullNutrients
             if (food.FullNutrients != null)
             {
@@ -262,28 +266,28 @@ namespace NutritionAmbition.Backend.API.Helpers
                     }
                 }
             }
-            
+
             // Calculate scaling factor based on user input
             var servingQty = food.ServingQty;
             var servingUnit = food.ServingUnit ?? string.Empty;
             var servingWeightG = food.ServingWeightGrams;
-            
-            
-            
+
+
+
             var scalingFactor = ScaleFromUserInput(
-                userQuantity, 
+                userQuantity,
                 userUnit,
-                servingQty, 
-                servingUnit, 
+                servingQty,
+                servingUnit,
                 servingWeightG,
                 apiServingKind);
-                
+
             if (scalingFactor.HasValue)
             {
-                
+
                 // Apply scaling to nutrition values
                 ScaleNutrition(foodItem, scalingFactor.Value, logger);
-                
+
                 // Update unit to user's unit
                 foodItem.Unit = userUnit;
             }
@@ -292,10 +296,35 @@ namespace NutritionAmbition.Backend.API.Helpers
                 // If no scaling could be applied, still normalize OriginalScaledQuantity to 1
                 foodItem.Quantity = foodItem.Quantity;
                 foodItem.Quantity = 1;
-                
+
             }
-            
+
             return foodItem;
         }
+        private static string NormalizeUnit(string unit, UnitKind? kind = null)
+        {
+            var normalized = unit.ToLowerInvariant().Trim() switch
+            {
+                "tablespoon" => "tbsp",
+                "tbs" => "tbsp",
+                "tbsp" => "tbsp",
+                "teaspoon" => "tsp",
+                "tsp" => "tsp",
+                "ounce" => "oz",
+                "ounces" => "oz",
+                "oz" when kind == UnitKind.Volume => "fl oz", // 🟢 handle oz→fl oz only when volume
+                "oz" => "oz", // default case for mass-based oz
+                "gram" => "g",
+                "grams" => "g",
+                "milliliter" => "ml",
+                "ml" => "ml",
+                "cup" => "cup",
+                _ => unit.ToLowerInvariant().Trim()
+            };
+
+            return normalized;
+        }
+
+
     }
 }
