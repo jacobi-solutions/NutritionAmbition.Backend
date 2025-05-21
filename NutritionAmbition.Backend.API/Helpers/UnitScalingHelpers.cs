@@ -4,6 +4,7 @@ using System.Globalization;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Constants;
 using NutritionAmbition.Backend.API.DataContracts;
+using Microsoft.Extensions.Logging;
 
 namespace NutritionAmbition.Backend.API.Helpers
 {
@@ -146,8 +147,22 @@ namespace NutritionAmbition.Backend.API.Helpers
         /// <summary>
         /// Scales nutrition values in a FoodItem by the given multiplier
         /// </summary>
-        public static void ScaleNutrition(FoodItem item, double factor)
+        public static void ScaleNutrition(FoodItem item, double factor, ILogger logger = null)
         {
+            // Diagnostic logging for protein scaling
+            if (logger != null)
+            {
+                logger.LogInformation("[PROTEIN_SCALE_DEBUG] BEFORE: {ItemName}, factor={Factor}, Protein={ProteinBefore}", 
+                    item.Name, factor, item.Protein);
+                
+                // Add warning log if item.Quantity is not 1 to catch possible double-scaling issues
+                if (item.Quantity != 1)
+                {
+                    logger.LogWarning("[DOUBLE_SCALE_CHECK] Item {ItemName} has Quantity={Quantity} before scaling, suggesting it may already be scaled",
+                        item.Name, item.Quantity);
+                }
+            }
+            
             item.Calories       = (int)Math.Round(item.Calories       * factor);
             item.Protein        *= factor;
             item.Carbohydrates  *= factor;
@@ -163,8 +178,20 @@ namespace NutritionAmbition.Backend.API.Helpers
             foreach (var k in keys)
                 item.Micronutrients[k] = item.Micronutrients[k] * factor;
                 
-            // Scale quantity by the factor
-            item.Quantity *= factor;
+            // Scale quantity by the factor, then normalize to 1
+            double scaledQuantity = item.Quantity * factor;
+            
+            // Set Quantity to 1 to indicate this item is fully scaled
+            // Store the original scaled quantity in a new property if needed for display
+            item.OriginalScaledQuantity = scaledQuantity;
+            item.Quantity = 1;
+            
+            // More diagnostic logging after scaling
+            if (logger != null)
+            {
+                logger.LogInformation("[PROTEIN_SCALE_DEBUG] AFTER: {ItemName}, Protein={ProteinAfter}, OriginalScaledQuantity={OriginalScaledQuantity}, Quantity={Quantity}, Unit={Unit}", 
+                    item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+            }
         }
         
         /// <summary>
@@ -174,7 +201,8 @@ namespace NutritionAmbition.Backend.API.Helpers
             NutritionixFood food, 
             double userQuantity, 
             string userUnit,
-            UnitKind apiServingKind)
+            UnitKind apiServingKind,
+            ILogger logger = null)
         {
             // Create a FoodItem with base values from the API
             var foodItem = new FoodItem
@@ -182,6 +210,7 @@ namespace NutritionAmbition.Backend.API.Helpers
                 Name = food.FoodName ?? string.Empty,
                 BrandName = food.BrandName,
                 Quantity = food.ServingQty, // Use API serving quantity as initial value
+                OriginalScaledQuantity = userQuantity, // Store the user's requested quantity
                 Unit = food.ServingUnit ?? string.Empty,
                 ApiServingKind = apiServingKind,
                 // Initialize with API values (these will be scaled)
@@ -243,6 +272,14 @@ namespace NutritionAmbition.Backend.API.Helpers
             var servingUnit = food.ServingUnit ?? string.Empty;
             var servingWeightG = food.ServingWeightGrams;
             
+            // Diagnostic logging for scaling inputs
+            if (logger != null)
+            {
+                logger.LogInformation("[PROTEIN_SCALE_DEBUG] CreateFoodItemWithScaledNutrition: {ItemName}, userQuantity={UserQuantity}, userUnit={UserUnit}, " + 
+                                    "apiServingQty={ApiServingQty}, apiServingUnit={ApiServingUnit}, apiServingWeightG={ApiServingWeightG}", 
+                                    foodItem.Name, userQuantity, userUnit, servingQty, servingUnit, servingWeightG);
+            }
+            
             var scalingFactor = ScaleFromUserInput(
                 userQuantity, 
                 userUnit,
@@ -253,11 +290,27 @@ namespace NutritionAmbition.Backend.API.Helpers
                 
             if (scalingFactor.HasValue)
             {
+                if (logger != null)
+                {
+                    logger.LogInformation("[PROTEIN_SCALE_DEBUG] Calculated scalingFactor={ScalingFactor}", scalingFactor.Value);
+                }
+                
                 // Apply scaling to nutrition values
-                ScaleNutrition(foodItem, scalingFactor.Value);
+                ScaleNutrition(foodItem, scalingFactor.Value, logger);
                 
                 // Update unit to user's unit
                 foodItem.Unit = userUnit;
+            }
+            else if (logger != null)
+            {
+                logger.LogWarning("[PROTEIN_SCALE_DEBUG] Failed to calculate scaling factor for {ItemName}", foodItem.Name);
+                
+                // If no scaling could be applied, still normalize Quantity to 1
+                foodItem.OriginalScaledQuantity = foodItem.Quantity;
+                foodItem.Quantity = 1;
+                
+                logger.LogInformation("[DOUBLE_SCALE_CHECK] Setting Quantity=1 for {ItemName} even though no scaling factor was found",
+                    foodItem.Name);
             }
             
             return foodItem;

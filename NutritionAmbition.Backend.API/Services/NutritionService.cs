@@ -644,15 +644,21 @@ namespace NutritionAmbition.Backend.API.Services
             
             foreach (var item in foodItems)
             {
+                // Diagnostic logging for protein value tracking
+                _logger.LogInformation("[PROTEIN_SCALE_DEBUG] ConvertFoodItemsToFoodNutrition: Converting {ItemName}, Protein={Protein}, OriginalScaledQuantity={OriginalScaledQuantity}, Quantity={Quantity}, Unit={Unit}",
+                    item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+                
                 var foodNutrition = new FoodNutrition
                 {
                     Name = item.Name,
                     BrandName = item.BrandName,
-                    Quantity = item.Quantity.ToString(),
+                    // Use OriginalScaledQuantity for display to show user the real amount
+                    Quantity = item.OriginalScaledQuantity.ToString(),
                     Unit = item.Unit,
                     Calories = item.Calories,
                     Macronutrients = new Macronutrients
                     {
+                        // Note: Nutrient values are already scaled - do not multiply by Quantity
                         Protein = new NutrientInfo { Amount = item.Protein, Unit = "g" },
                         Carbohydrates = new NutrientInfo { Amount = item.Carbohydrates, Unit = "g" },
                         Fat = new NutrientInfo { Amount = item.Fat, Unit = "g" },
@@ -664,6 +670,10 @@ namespace NutritionAmbition.Backend.API.Services
                     },
                     Micronutrients = new Dictionary<string, Micronutrient>()
                 };
+                
+                // Log the created FoodNutrition object's protein value
+                _logger.LogInformation("[PROTEIN_SCALE_DEBUG] ConvertFoodItemsToFoodNutrition: Created FoodNutrition for {ItemName}, Protein={Protein}, DisplayQuantity={DisplayQuantity}",
+                    foodNutrition.Name, foodNutrition.Macronutrients.Protein.Amount, foodNutrition.Quantity);
                 
                 // Convert micronutrients
                 foreach (var nutrient in item.Micronutrients)
@@ -700,6 +710,7 @@ namespace NutritionAmbition.Backend.API.Services
                         _ => ""
                     };
                     
+                    // Micronutrient values are already scaled - do not multiply by Quantity
                     foodNutrition.Micronutrients[nutrient.Key] = new Micronutrient 
                     { 
                         Amount = nutrient.Value, 
@@ -755,10 +766,22 @@ namespace NutritionAmbition.Backend.API.Services
         {
             try
             {
+                // Log the input values for debugging protein scaling issues
+                _logger.LogInformation("[PROTEIN_SCALE_DEBUG] ScaleFoodItemFromUserInput: {ItemName}, userQuantity={UserQuantity}, userUnit={UserUnit}, " +
+                    "apiServingQty={ApiServingQty}, apiServingUnit={ApiServingUnit}, apiServingWeightG={ApiServingWeightG}, initialProtein={InitialProtein}",
+                    item.Name, quantity, unit, apiServingQty, apiServingUnit, apiServingWeightG, item.Protein);
+                
                 // Skip scaling if required values are missing
                 if (string.IsNullOrWhiteSpace(apiServingUnit))
                 {
                     _logger.LogWarning("Skipping scaling for {FoodName} - missing API serving unit", item.Name);
+                    
+                    // Even if we skip scaling, normalize Quantity to 1 and store original quantity
+                    item.OriginalScaledQuantity = quantity;
+                    item.Quantity = 1;
+                    item.Unit = unit;
+                    
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Normalizing {ItemName} Quantity to 1 even without scaling", item.Name);
                     return;
                 }
                 
@@ -773,12 +796,28 @@ namespace NutritionAmbition.Backend.API.Services
                     
                 if (multiplier.HasValue)
                 {
-                    // Scale the nutrition values using our centralized method
-                    UnitScalingHelpers.ScaleNutrition(item, multiplier.Value);
+                    _logger.LogInformation("[PROTEIN_SCALE_DEBUG] Calculated multiplier={Multiplier} for {ItemName}",
+                        multiplier.Value, item.Name);
                     
-                    // Update the unit to match user's specified unit
-                    item.Quantity = quantity;
+                    // Scale the nutrition values using our centralized method
+                    UnitScalingHelpers.ScaleNutrition(item, multiplier.Value, _logger);
+                    
+                    // Update the unit to match user's specified unit (ScaleNutrition already sets Quantity=1)
                     item.Unit = unit;
+                    
+                    _logger.LogInformation("[PROTEIN_SCALE_DEBUG] Final values after scaling: {ItemName}, Protein={Protein}, OriginalScaledQuantity={OriginalScaledQuantity}, Quantity={Quantity}, Unit={Unit}",
+                        item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+                }
+                else
+                {
+                    _logger.LogWarning("[PROTEIN_SCALE_DEBUG] Failed to calculate multiplier for {ItemName}", item.Name);
+                    
+                    // Even if we can't calculate a multiplier, normalize Quantity to 1 and store original quantity
+                    item.OriginalScaledQuantity = quantity;
+                    item.Quantity = 1;
+                    item.Unit = unit;
+                    
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Normalizing {ItemName} Quantity to 1 without multiplier", item.Name);
                 }
             }
             catch (Exception ex)

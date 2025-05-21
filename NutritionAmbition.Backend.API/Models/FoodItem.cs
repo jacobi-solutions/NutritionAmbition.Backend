@@ -12,11 +12,16 @@ namespace NutritionAmbition.Backend.API.Models
         public string? BrandName { get; set; }
         
         /// <summary>
-        /// The fully scaled quantity in user-specified units.
-        /// This value reflects the total amount to be displayed to the user.
-        /// All nutrition values are scaled according to this quantity.
+        /// The quantity is now normalized to 1.0 to indicate the item is fully scaled.
+        /// All nutrition values already include the scaling and should not be multiplied by this value.
         /// </summary>
         public double Quantity { get; set; } = 0.0;
+        
+        /// <summary>
+        /// The original scaled quantity in user-specified units.
+        /// This value is used for display purposes to show the actual amount the user consumed.
+        /// </summary>
+        public double OriginalScaledQuantity { get; set; } = 0.0;
 
         public string Unit { get; set; } = string.Empty;
         public int Calories { get; set; } = 0;
