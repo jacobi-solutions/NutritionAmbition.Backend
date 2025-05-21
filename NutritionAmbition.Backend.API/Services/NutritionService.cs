@@ -214,7 +214,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                             // Use OpenAI to select the best branded food match
                             //var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync(foodDescription, searchResults.Branded);
-                            var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded.Take(10).ToList());
+                            var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
                             if (!string.IsNullOrWhiteSpace(selectedNixItemId))
                             {
 
