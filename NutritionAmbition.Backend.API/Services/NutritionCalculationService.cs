@@ -39,22 +39,6 @@ namespace NutritionAmbition.Backend.API.Services
 
         public NutritionTotals CalculateTotals(IEnumerable<FoodItem> items)
         {
-            // Log values before calculation for debugging
-            if (_logger != null)
-            {
-                foreach (var item in items)
-                {
-                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] CalculateTotals item: {Name}, Protein={Protein}, OriginalScaledQuantity={OriginalQty}, OriginalScaledQuantity={Qty}",
-                        item.Name, item.Protein, item.Quantity, item.Quantity);
-                    
-                    // If OriginalScaledQuantity is not 1, log a warning
-                    if (item.Quantity != 1)
-                    {
-                        _logger.LogWarning("[DOUBLE_SCALE_CHECK] Item {Name} has OriginalScaledQuantity={OriginalScaledQuantity}, expected 1 for pre-scaled values",
-                            item.Name, item.Quantity);
-                    }
-                }
-            }
             
             // Values are already scaled, do not multiply by item.OriginalScaledQuantity
             var totals = new NutritionTotals
@@ -67,12 +51,6 @@ namespace NutritionAmbition.Backend.API.Services
                 TotalMicronutrients = AggregateMicronutrients(items)
             };
             
-            // Log the calculated totals
-            if (_logger != null)
-            {
-                _logger.LogInformation("[DOUBLE_SCALE_CHECK] CalculateTotals results: TotalProtein={TotalProtein}, TotalCarbs={TotalCarbs}, TotalFat={TotalFat}",
-                    totals.TotalProtein, totals.TotalCarbohydrates, totals.TotalFat);
-            }
             
             return totals;
         }
