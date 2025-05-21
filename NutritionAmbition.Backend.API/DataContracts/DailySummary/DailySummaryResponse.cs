@@ -8,7 +8,6 @@ namespace NutritionAmbition.Backend.API.DataContracts
         public double TotalProtein { get; set; }
         public double TotalCarbohydrates { get; set; }
         public double TotalFat { get; set; }
-        public double TotalSaturatedFat { get; set; }
         public Dictionary<string, double> TotalMicronutrients { get; set; } = new Dictionary<string, double>();
     }
 } 

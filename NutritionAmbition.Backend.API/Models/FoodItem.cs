@@ -24,12 +24,12 @@ namespace NutritionAmbition.Backend.API.Models
         public double Protein { get; set; } = 0.0;
         public double Carbohydrates { get; set; } = 0.0;
         public double Fat { get; set; } = 0.0;
-        public double Fiber { get; set; } = 0.0;
-        public double Sugar { get; set; } = 0.0;
-        public double SaturatedFat { get; set; } = 0.0;
-        public double UnsaturatedFat { get; set; } = 0.0;
-        public double TransFat { get; set; } = 0.0;
         public Dictionary<string, double> Micronutrients { get; set; } = new Dictionary<string, double>();
+        
+        /// <summary>
+        /// Dictionary to store all nutrients from Nutritionix by their attribute ID.
+        /// </summary>
+        public Dictionary<string, double> AllNutrients { get; set; } = new();
         
         /// <summary>
         /// The kind of unit used for the API serving (Weight, Volume, or Count)

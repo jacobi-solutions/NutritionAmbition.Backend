@@ -11,7 +11,6 @@ namespace NutritionAmbition.Backend.API.Services
         public double TotalProtein { get; set; }
         public double TotalCarbohydrates { get; set; }
         public double TotalFat { get; set; }
-        public double TotalSaturatedFat { get; set; }
         public Dictionary<string, double> TotalMicronutrients { get; set; } = new Dictionary<string, double>();
     }
 
@@ -47,7 +46,6 @@ namespace NutritionAmbition.Backend.API.Services
                 TotalProtein = items.Sum(i => i.Protein),           // Previously: i.Protein * i.OriginalScaledQuantity
                 TotalCarbohydrates = items.Sum(i => i.Carbohydrates), // Previously: i.Carbohydrates * i.OriginalScaledQuantity
                 TotalFat = items.Sum(i => i.Fat),                   // Previously: i.Fat * i.OriginalScaledQuantity
-                TotalSaturatedFat = items.Sum(i => i.SaturatedFat), // Previously: i.SaturatedFat * i.OriginalScaledQuantity
                 TotalMicronutrients = AggregateMicronutrients(items)
             };
             

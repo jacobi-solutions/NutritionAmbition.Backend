@@ -89,22 +89,13 @@ namespace NutritionAmbition.Backend.API.Services
                 // Calculate totals for summary
                 var nutritionTotals = _nutritionCalculationService.CalculateTotals(foodItems);
                 
-                
-                // Compute total fiber, sugar, and saturated fat - values are already scaled
-                double totalFiber = foodItems.Sum(i => i.Fiber); // Previously: i.Fiber * i.OriginalScaledQuantity
-                double totalSugar = foodItems.Sum(i => i.Sugar); // Previously: i.Sugar * i.OriginalScaledQuantity
-                double totalSaturatedFat = nutritionTotals.TotalSaturatedFat; // Assuming this is already fixed
-                
                 // Set the summary totals
                 var totals = new SummaryTotals {
                     TotalCalories = (int)nutritionTotals.TotalCalories,
                     Macronutrients = new MacronutrientsSummary {
                         Protein = nutritionTotals.TotalProtein,
                         Carbohydrates = nutritionTotals.TotalCarbohydrates,
-                        Fat = nutritionTotals.TotalFat,
-                        Fiber = totalFiber,
-                        Sugar = totalSugar,
-                        SaturatedFat = totalSaturatedFat
+                        Fat = nutritionTotals.TotalFat
                     }
                 };
                 response.SummaryTotals = totals;
@@ -134,12 +125,6 @@ namespace NutritionAmbition.Backend.API.Services
             
             // Process micronutrients
             var allMicronutrients = new Dictionary<string, double>();
-            
-            // Add other nutrients that were previously treated as macronutrients
-            // but are now classified as micronutrients
-            AddMicroNutrientBreakdown(nutrientBreakdowns, foodItems, "Fiber", item => item.Fiber);
-            AddMicroNutrientBreakdown(nutrientBreakdowns, foodItems, "Sugar", item => item.Sugar);
-            AddMicroNutrientBreakdown(nutrientBreakdowns, foodItems, "Saturated Fat", item => item.SaturatedFat);
             
             // Collect all micronutrients from all food items
             foreach (var item in foodItems)
@@ -331,11 +316,6 @@ namespace NutritionAmbition.Backend.API.Services
                 AddNutrientContribution(breakdown, group, "Protein", item => item.Protein, "g");
                 AddNutrientContribution(breakdown, group, "Carbohydrates", item => item.Carbohydrates, "g");
                 AddNutrientContribution(breakdown, group, "Fat", item => item.Fat, "g");
-                
-                // Add former macronutrients that are now micronutrients
-                AddNutrientContribution(breakdown, group, "Fiber", item => item.Fiber, "g");
-                AddNutrientContribution(breakdown, group, "Sugar", item => item.Sugar, "g");
-                AddNutrientContribution(breakdown, group, "Saturated Fat", item => item.SaturatedFat, "g");
                 
                 // Add micronutrient contributions
                 var allMicronutrients = new HashSet<string>();

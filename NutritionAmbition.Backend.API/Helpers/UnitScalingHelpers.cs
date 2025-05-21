@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using NutritionAmbition.Backend.API.Models;
+using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.Constants;
 using NutritionAmbition.Backend.API.DataContracts;
-using Microsoft.Extensions.Logging;
+using NutritionAmbition.Backend.API.Models;
 
 namespace NutritionAmbition.Backend.API.Helpers
 {
@@ -116,7 +116,7 @@ namespace NutritionAmbition.Backend.API.Helpers
         )
         {
             var normalizedUserUnit = NormalizeUnit(userUnit, apiServingKind);
-            var normalizedServingUnit = NormalizeUnit(servingUnit); // API units don’t need disambiguation
+            var normalizedServingUnit = NormalizeUnit(servingUnit); // API units don't need disambiguation
 
 
             if (UnitsMatch(normalizedUserUnit, normalizedServingUnit))
@@ -174,16 +174,17 @@ namespace NutritionAmbition.Backend.API.Helpers
             item.Protein *= factor;
             item.Carbohydrates *= factor;
             item.Fat *= factor;
-            item.Fiber *= factor;
-            item.Sugar *= factor;
-            item.SaturatedFat *= factor;
-            item.UnsaturatedFat *= factor;
-            item.TransFat *= factor;
 
             // micronutrients
             var keys = new List<string>(item.Micronutrients.Keys);
             foreach (var k in keys)
                 item.Micronutrients[k] = item.Micronutrients[k] * factor;
+                
+            // all nutrients
+            var allKeys = new List<string>(item.AllNutrients.Keys);
+            foreach (var k in allKeys)
+                item.AllNutrients[k] = item.AllNutrients[k] * factor;
+
 
             // Scale OriginalScaledQuantity by the factor, then normalize to 1
             double scaledQuantity = item.Quantity * factor;
@@ -218,54 +219,11 @@ namespace NutritionAmbition.Backend.API.Helpers
                 Protein = food.Protein ?? 0,
                 Carbohydrates = food.TotalCarbohydrate ?? 0,
                 Fat = food.TotalFat ?? 0,
-                Fiber = food.DietaryFiber ?? 0,
-                Sugar = food.Sugars ?? 0,
-                SaturatedFat = food.SaturatedFat ?? 0,
-                UnsaturatedFat = 0, // Placeholder for now, Nutritionix doesn't provide this separately
-                TransFat = 0, // Nutritionix doesn't provide trans fat directly
                 Micronutrients = new Dictionary<string, double>()
             };
 
-            // Map micronutrients from FullNutrients
-            if (food.FullNutrients != null)
-            {
-                foreach (var nutrient in food.FullNutrients)
-                {
-                    // Basic mapping based on common attr_ids (can be expanded)
-                    string? nutrientName = nutrient.AttrId switch
-                    {
-                        301 => "Calcium",
-                        303 => "Iron",
-                        304 => "Magnesium",
-                        305 => "Phosphorus",
-                        306 => "Potassium",
-                        307 => "Sodium",
-                        309 => "Zinc",
-                        312 => "Copper",
-                        315 => "Manganese",
-                        317 => "Selenium",
-                        401 => "Vitamin C",
-                        404 => "Thiamin", // B1
-                        405 => "Riboflavin", // B2
-                        406 => "Niacin", // B3
-                        410 => "Pantothenic Acid", // B5
-                        415 => "Vitamin B6",
-                        417 => "Folate", // B9
-                        418 => "Vitamin B12",
-                        320 => "Vitamin A", // RAE
-                        323 => "Vitamin E",
-                        328 => "Vitamin D", // D2 + D3
-                        430 => "Vitamin K",
-                        _ => null
-                    };
-
-                    if (nutrientName != null)
-                    {
-                        // Store the amount in the micronutrients dictionary
-                        foodItem.Micronutrients[nutrientName] = nutrient.Value;
-                    }
-                }
-            }
+            // Map micronutrients using the centralized mapper helper
+            NutritionixNutrientMapper.MapMicronutrients(food, foodItem);
 
             // Calculate scaling factor based on user input
             var servingQty = food.ServingQty;
