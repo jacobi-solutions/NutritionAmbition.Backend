@@ -180,10 +180,6 @@ namespace NutritionAmbition.Backend.API.Helpers
             foreach (var k in keys)
                 item.Micronutrients[k] = item.Micronutrients[k] * factor;
                 
-            // all nutrients
-            var allKeys = new List<string>(item.AllNutrients.Keys);
-            foreach (var k in allKeys)
-                item.AllNutrients[k] = item.AllNutrients[k] * factor;
 
 
             // Scale OriginalScaledQuantity by the factor, then normalize to 1

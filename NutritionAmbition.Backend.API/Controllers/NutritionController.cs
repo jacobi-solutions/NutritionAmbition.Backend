@@ -111,24 +111,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             return Ok(nutritionData);
         }
 
-        [HttpPost("GetDailySummary")]
-        [Obsolete("Replaced by SummaryTotals in GetDetailedSummary")]
-        public async Task<ActionResult<NutritionSummaryResponse>> GetDailySummary([FromBody] DateRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized();
-            }
-
-            var response = await _dailySummaryService.GetDailySummaryAsync(account.Id, request.Date);
-            return Ok(response);
-        }
+        
 
         [HttpPost("GetWeeklySummary")]
         public async Task<ActionResult<NutritionSummaryResponse>> GetWeeklySummary([FromBody] DateRequest request)

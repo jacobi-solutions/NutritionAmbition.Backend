@@ -27,11 +27,6 @@ namespace NutritionAmbition.Backend.API.Models
         public Dictionary<string, double> Micronutrients { get; set; } = new Dictionary<string, double>();
         
         /// <summary>
-        /// Dictionary to store all nutrients from Nutritionix by their attribute ID.
-        /// </summary>
-        public Dictionary<string, double> AllNutrients { get; set; } = new();
-        
-        /// <summary>
         /// The kind of unit used for the API serving (Weight, Volume, or Count)
         /// </summary>
         public UnitKind ApiServingKind { get; set; }

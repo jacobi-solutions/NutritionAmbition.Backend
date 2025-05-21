@@ -10,8 +10,6 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IDailySummaryService
     {
         Task<DailySummaryResponse> GetDailySummaryAsync(string accountId);
-        [Obsolete("Replaced by SummaryTotals in GetDetailedSummary")]
-        Task<NutritionSummaryResponse> GetDailySummaryAsync(string accountId, DateTime dateUtc);
         Task<NutritionSummaryResponse> GetWeeklySummaryAsync(string accountId, DateTime startDateUtc);
         Task<NutritionSummaryResponse> GetMonthlySummaryAsync(string accountId, DateTime startDateUtc);
     }
@@ -66,67 +64,7 @@ namespace NutritionAmbition.Backend.API.Services
             return response;
         }
 
-        /// <summary>
-        /// Gets a nutrition summary for a specific date
-        /// </summary>
-        /// <param name="accountId">The account ID</param>
-        /// <param name="dateUtc">The date to get the summary for (in UTC)</param>
-        /// <returns>A nutrition summary response with calculated totals</returns>
-        [Obsolete("Replaced by SummaryTotals in GetDetailedSummary")]
-        public async Task<NutritionSummaryResponse> GetDailySummaryAsync(string accountId, DateTime dateUtc)
-        {
-            var response = new NutritionSummaryResponse
-            {
-                PeriodStart = dateUtc.Date,
-                PeriodEnd = dateUtc.Date.AddDays(1).AddTicks(-1)
-            };
-
-            try
-            {
-                _logger.LogInformation("Generating daily nutrition summary for account {AccountId} on {Date}", accountId, dateUtc.Date);
-                
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot generate daily summary with empty account ID");
-                    return response;
-                }
-
-                // Get all food entries for the specified day
-                var entries = await _repo.GetFoodEntriesByAccountAndDateAsync(accountId, dateUtc.Date);
-                
-                if (entries == null || !entries.Any())
-                {
-                    _logger.LogInformation("No food entries found for account {AccountId} on {Date}", accountId, dateUtc.Date);
-                    return response;
-                }
-
-                // Use the nutrition calculation service to compute the totals
-                var foodItems = _nutritionCalculationService.FlattenEntries(entries);
-                var nutritionTotals = _nutritionCalculationService.CalculateTotals(foodItems);
-
-                // Map the values to the response
-                response.TotalCalories = nutritionTotals.TotalCalories;
-                
-                response.Macronutrients = new MacronutrientsSummary
-                {
-                    Protein = nutritionTotals.TotalProtein,
-                    Carbohydrates = nutritionTotals.TotalCarbohydrates,
-                    Fat = nutritionTotals.TotalFat,
-                };
-                
-                // Add all micronutrients from the calculation
-                response.Micronutrients = nutritionTotals.TotalMicronutrients;
-                
-                _logger.LogInformation("Successfully generated daily nutrition summary for account {AccountId} on {Date} - {Calories} calories", 
-                    accountId, dateUtc.Date, response.TotalCalories);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating daily nutrition summary for account {AccountId} on {Date}", accountId, dateUtc.Date);
-            }
-            
-            return response;
-        }
+        
 
         /// <summary>
         /// Gets a weekly nutrition summary starting from a specific date
@@ -175,6 +113,7 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 response.Macronutrients = new MacronutrientsSummary
                 {
+                    Calories = nutritionTotals.TotalCalories,
                     Protein = nutritionTotals.TotalProtein,
                     Carbohydrates = nutritionTotals.TotalCarbohydrates,
                     Fat = nutritionTotals.TotalFat,
@@ -242,6 +181,7 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 response.Macronutrients = new MacronutrientsSummary
                 {
+                    Calories = nutritionTotals.TotalCalories,
                     Protein = nutritionTotals.TotalProtein,
                     Carbohydrates = nutritionTotals.TotalCarbohydrates,
                     Fat = nutritionTotals.TotalFat,

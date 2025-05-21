@@ -18,11 +18,7 @@ namespace NutritionAmbition.Backend.API.Helpers
         /// <returns>A tuple containing the nutrient name and unit, or null if not recognized.</returns>
         private static readonly Dictionary<int, (string Name, string Unit)> NutrientMap = new()
         {
-            { 203, ("Protein", "g") },
-            { 204, ("Fat", "g") },
-            { 205, ("Carbohydrates", "g") },
             { 207, ("Ash", "g") },
-            { 208, ("Calories", "kcal") },
             { 209, ("Starch", "g") },
             { 210, ("Sucrose", "g") },
             { 211, ("Glucose (dextrose)", "g") },
@@ -31,12 +27,10 @@ namespace NutritionAmbition.Backend.API.Helpers
             { 214, ("Maltose", "g") },
             { 221, ("Alcohol, ethyl", "g") },
             { 255, ("Water", "g") },
-            { 257, ("Protein (adjusted)", "g") },
             { 260, ("Mannitol", "g") },
             { 261, ("Sorbitol", "g") },
             { 262, ("Caffeine", "mg") },
             { 263, ("Theobromine", "mg") },
-            { 268, ("Calories", "kJ") },
             { 269, ("Sugars", "g") },
             { 287, ("Galactose", "g") },
             { 290, ("Xylitol", "g") },
@@ -140,7 +134,7 @@ namespace NutritionAmbition.Backend.API.Helpers
 
         /// <summary>
         /// Maps micronutrients from the Nutritionix food object to the target FoodItem object.
-        /// Stores all nutrients in the AllNutrients dictionary and a subset in the Micronutrients dictionary.
+        /// Stores all nutrients in in the Micronutrients dictionary.
         /// </summary>
         /// <param name="source">The source Nutritionix food object.</param>
         /// <param name="target">The target FoodItem object.</param>
@@ -150,8 +144,6 @@ namespace NutritionAmbition.Backend.API.Helpers
 
             foreach (var nutrient in source.FullNutrients)
             {
-                target.AllNutrients[nutrient.AttrId.ToString()] = nutrient.Value;
-
                 var mapped = TryMapNutrient(nutrient.AttrId);
                 
                 if (mapped != null)

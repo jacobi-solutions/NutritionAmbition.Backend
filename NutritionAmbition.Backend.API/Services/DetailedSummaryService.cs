@@ -93,6 +93,7 @@ namespace NutritionAmbition.Backend.API.Services
                 var totals = new SummaryTotals {
                     TotalCalories = (int)nutritionTotals.TotalCalories,
                     Macronutrients = new MacronutrientsSummary {
+                        Calories = nutritionTotals.TotalCalories,
                         Protein = nutritionTotals.TotalProtein,
                         Carbohydrates = nutritionTotals.TotalCarbohydrates,
                         Fat = nutritionTotals.TotalFat
@@ -119,6 +120,7 @@ namespace NutritionAmbition.Backend.API.Services
             var nutrientBreakdowns = new List<NutrientBreakdown>();
 
             // Process macronutrients first (only protein, carbohydrates, and fat)
+            AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Calories", item => item.Calories);
             AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Protein", item => item.Protein);
             AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Carbohydrates", item => item.Carbohydrates);
             AddMacroNutrientBreakdown(nutrientBreakdowns, foodItems, "Fat", item => item.Fat);
