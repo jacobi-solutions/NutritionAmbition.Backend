@@ -37,7 +37,7 @@ namespace NutritionAmbition.Backend.API.Helpers
         };
 
         /// <summary>
-        /// Try to convert a quantity+unit (e.g. 16, "oz") into **grams**.
+        /// Try to convert a OriginalScaledQuantity+unit (e.g. 16, "oz") into **grams**.
         /// Returns null if the unit isn't recognised.
         /// </summary>
         public static double? TryConvertToGrams(double qty, string unit)
@@ -101,46 +101,62 @@ namespace NutritionAmbition.Backend.API.Helpers
         /// by the user's <paramref name="userQty"/> <paramref name="userUnit"/>.
         /// Returns null if we can't figure it out.
         /// </summary>
-        /// <param name="userQty">Quantity specified by the user</param>
+        /// <param name="userQty">OriginalScaledQuantity specified by the user</param>
         /// <param name="userUnit">Unit specified by the user</param>
-        /// <param name="servingQty">API serving quantity</param>
+        /// <param name="servingQty">API serving OriginalScaledQuantity</param>
         /// <param name="servingUnit">API serving unit</param>
         /// <param name="servingWeightG">API serving weight in grams (null if unknown)</param>
         /// <param name="apiServingKind">The kind of unit used for the API serving (Weight, Volume, or Count)</param>
-        /// <returns>A multiplier representing how many API servings are in the user's quantity, or null if it can't be determined</returns>
+        /// <returns>A multiplier representing how many API servings are in the user's OriginalScaledQuantity, or null if it can't be determined</returns>
         public static double? ScaleFromUserInput(
             double userQty, string userUnit,
             double servingQty, string servingUnit,
-            double? servingWeightG, // null = unknown
-            UnitKind apiServingKind = UnitKind.Weight // default to Weight if not specified
+            double? servingWeightG,
+            UnitKind apiServingKind = UnitKind.Weight
         )
         {
-            // Normalize user unit based on API serving kind
-            string normalizedUserUnit = userUnit;
-            
-            // If user entered "oz" and API serving is a Volume, interpret as "fl oz"
-            if (string.Equals(userUnit?.Trim(), "oz", StringComparison.OrdinalIgnoreCase) && 
-                apiServingKind == UnitKind.Volume)
-            {
-                normalizedUserUnit = "fl oz";
-            }
+            string normalizedUserUnit = userUnit?.Trim().ToLowerInvariant();
 
-            // 3a. easiest path – units are identical
+            if (normalizedUserUnit == "oz" && apiServingKind == UnitKind.Volume)
+                normalizedUserUnit = "fl oz";
+
+            // Case 1: direct unit match (ignores any parentheses in servingUnit)
             if (UnitsMatch(normalizedUserUnit, servingUnit))
             {
-                return userQty / servingQty;   // 2 slices out of 1 slice serving = ×2
+                return userQty / servingQty;
             }
 
-            // 3b. convert both sides to grams
-            var userG     = TryConvertToGrams(userQty, normalizedUserUnit);
-            var servingG  = servingWeightG ?? TryConvertToGrams(servingQty, servingUnit);
+            // Case 2: try to extract inner unit (e.g. "cup (8 fl oz)")
+            var parenStart = servingUnit.IndexOf('(');
+            var parenEnd = servingUnit.IndexOf(')');
+            if (parenStart >= 0 && parenEnd > parenStart)
+            {
+                var inner = servingUnit.Substring(parenStart + 1, parenEnd - parenStart - 1); // e.g. "8 fl oz"
+                var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2 &&
+                    double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var innerQty))
+                {
+                    var innerUnit = string.Join(' ', parts[1..]).Trim().ToLowerInvariant();
+
+                    if (normalizedUserUnit == innerUnit)
+                    {
+                        var totalServingAmount = servingQty * innerQty; // e.g. 1 cup (8 fl oz) → 8
+                        return userQty / totalServingAmount;
+                    }
+                }
+            }
+
+            // Case 3: fallback to grams
+            var userG = TryConvertToGrams(userQty, normalizedUserUnit);
+            var servingG = servingWeightG ?? TryConvertToGrams(servingQty, servingUnit);
 
             if (userG != null && servingG != null && servingG.Value > 0)
                 return userG.Value / servingG.Value;
 
-            // 3c. cannot compute
             return null;
         }
+
+
 
         /* ---------- 4. Apply multiplier to nutrient fields ---------- */
 
@@ -155,15 +171,15 @@ namespace NutritionAmbition.Backend.API.Helpers
                 logger.LogInformation("[PROTEIN_SCALE_DEBUG] BEFORE: {ItemName}, factor={Factor}, Protein={ProteinBefore}", 
                     item.Name, factor, item.Protein);
                 
-                // Add warning log if item.Quantity is not 1 to catch possible double-scaling issues
+                // Add warning log if item.OriginalScaledQuantity is not 1 to catch possible double-scaling issues
                 if (item.Quantity != 1)
                 {
-                    logger.LogWarning("[DOUBLE_SCALE_CHECK] Item {ItemName} has Quantity={Quantity} before scaling, suggesting it may already be scaled",
+                    logger.LogWarning("[DOUBLE_SCALE_CHECK] Item {ItemName} has OriginalScaledQuantity={OriginalScaledQuantity} before scaling, suggesting it may already be scaled",
                         item.Name, item.Quantity);
                 }
             }
             
-            item.Calories       = (int)Math.Round(item.Calories       * factor);
+            item.Calories       *= factor;
             item.Protein        *= factor;
             item.Carbohydrates  *= factor;
             item.Fat            *= factor;
@@ -178,24 +194,23 @@ namespace NutritionAmbition.Backend.API.Helpers
             foreach (var k in keys)
                 item.Micronutrients[k] = item.Micronutrients[k] * factor;
                 
-            // Scale quantity by the factor, then normalize to 1
+            // Scale OriginalScaledQuantity by the factor, then normalize to 1
             double scaledQuantity = item.Quantity * factor;
             
-            // Set Quantity to 1 to indicate this item is fully scaled
-            // Store the original scaled quantity in a new property if needed for display
-            item.OriginalScaledQuantity = scaledQuantity;
-            item.Quantity = 1;
+            // Set OriginalScaledQuantity to 1 to indicate this item is fully scaled
+            // Store the original scaled OriginalScaledQuantity in a new property if needed for display
+            item.Quantity = scaledQuantity;
             
             // More diagnostic logging after scaling
             if (logger != null)
             {
-                logger.LogInformation("[PROTEIN_SCALE_DEBUG] AFTER: {ItemName}, Protein={ProteinAfter}, OriginalScaledQuantity={OriginalScaledQuantity}, Quantity={Quantity}, Unit={Unit}", 
-                    item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+                logger.LogInformation("[PROTEIN_SCALE_DEBUG] AFTER: {ItemName}, Protein={ProteinAfter}, OriginalScaledQuantity={OriginalScaledQuantity}, OriginalScaledQuantity={OriginalScaledQuantity}, Unit={Unit}", 
+                    item.Name, item.Protein, item.Quantity, item.Quantity, item.Unit);
             }
         }
         
         /// <summary>
-        /// This method constructs a FoodItem and immediately scales its nutrition values based on the provided user quantity and unit.
+        /// This method constructs a FoodItem and immediately scales its nutrition values based on the provided user OriginalScaledQuantity and unit.
         /// </summary>
         public static FoodItem CreateFoodItemWithScaledNutrition(
             NutritionixFood food, 
@@ -209,8 +224,7 @@ namespace NutritionAmbition.Backend.API.Helpers
             {
                 Name = food.FoodName ?? string.Empty,
                 BrandName = food.BrandName,
-                Quantity = food.ServingQty, // Use API serving quantity as initial value
-                OriginalScaledQuantity = userQuantity, // Store the user's requested quantity
+                Quantity = userQuantity, // Store the user's requested OriginalScaledQuantity
                 Unit = food.ServingUnit ?? string.Empty,
                 ApiServingKind = apiServingKind,
                 // Initialize with API values (these will be scaled)
@@ -305,11 +319,11 @@ namespace NutritionAmbition.Backend.API.Helpers
             {
                 logger.LogWarning("[PROTEIN_SCALE_DEBUG] Failed to calculate scaling factor for {ItemName}", foodItem.Name);
                 
-                // If no scaling could be applied, still normalize Quantity to 1
-                foodItem.OriginalScaledQuantity = foodItem.Quantity;
+                // If no scaling could be applied, still normalize OriginalScaledQuantity to 1
+                foodItem.Quantity = foodItem.Quantity;
                 foodItem.Quantity = 1;
                 
-                logger.LogInformation("[DOUBLE_SCALE_CHECK] Setting Quantity=1 for {ItemName} even though no scaling factor was found",
+                logger.LogInformation("[DOUBLE_SCALE_CHECK] Setting OriginalScaledQuantity=1 for {ItemName} even though no scaling factor was found",
                     foodItem.Name);
             }
             

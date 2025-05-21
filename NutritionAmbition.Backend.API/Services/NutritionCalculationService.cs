@@ -44,26 +44,26 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 foreach (var item in items)
                 {
-                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] CalculateTotals item: {Name}, Protein={Protein}, OriginalScaledQuantity={OriginalQty}, Quantity={Qty}",
-                        item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity);
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] CalculateTotals item: {Name}, Protein={Protein}, OriginalScaledQuantity={OriginalQty}, OriginalScaledQuantity={Qty}",
+                        item.Name, item.Protein, item.Quantity, item.Quantity);
                     
-                    // If Quantity is not 1, log a warning
+                    // If OriginalScaledQuantity is not 1, log a warning
                     if (item.Quantity != 1)
                     {
-                        _logger.LogWarning("[DOUBLE_SCALE_CHECK] Item {Name} has Quantity={Quantity}, expected 1 for pre-scaled values",
+                        _logger.LogWarning("[DOUBLE_SCALE_CHECK] Item {Name} has OriginalScaledQuantity={OriginalScaledQuantity}, expected 1 for pre-scaled values",
                             item.Name, item.Quantity);
                     }
                 }
             }
             
-            // Values are already scaled, do not multiply by item.Quantity
+            // Values are already scaled, do not multiply by item.OriginalScaledQuantity
             var totals = new NutritionTotals
             {
-                TotalCalories = items.Sum(i => i.Calories),         // Previously: i.Calories * i.Quantity
-                TotalProtein = items.Sum(i => i.Protein),           // Previously: i.Protein * i.Quantity
-                TotalCarbohydrates = items.Sum(i => i.Carbohydrates), // Previously: i.Carbohydrates * i.Quantity
-                TotalFat = items.Sum(i => i.Fat),                   // Previously: i.Fat * i.Quantity
-                TotalSaturatedFat = items.Sum(i => i.SaturatedFat), // Previously: i.SaturatedFat * i.Quantity
+                TotalCalories = items.Sum(i => i.Calories),         // Previously: i.Calories * i.OriginalScaledQuantity
+                TotalProtein = items.Sum(i => i.Protein),           // Previously: i.Protein * i.OriginalScaledQuantity
+                TotalCarbohydrates = items.Sum(i => i.Carbohydrates), // Previously: i.Carbohydrates * i.OriginalScaledQuantity
+                TotalFat = items.Sum(i => i.Fat),                   // Previously: i.Fat * i.OriginalScaledQuantity
+                TotalSaturatedFat = items.Sum(i => i.SaturatedFat), // Previously: i.SaturatedFat * i.OriginalScaledQuantity
                 TotalMicronutrients = AggregateMicronutrients(items)
             };
             
@@ -85,11 +85,11 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 foreach (var kvp in item.Micronutrients)
                 {
-                    // Values are already scaled, do not multiply by item.Quantity
+                    // Values are already scaled, do not multiply by item.OriginalScaledQuantity
                     if (micronutrients.ContainsKey(kvp.Key))
-                        micronutrients[kvp.Key] += kvp.Value; // Previously: kvp.Value * item.Quantity
+                        micronutrients[kvp.Key] += kvp.Value; // Previously: kvp.Value * item.OriginalScaledQuantity
                     else
-                        micronutrients[kvp.Key] = kvp.Value;  // Previously: kvp.Value * item.Quantity
+                        micronutrients[kvp.Key] = kvp.Value;  // Previously: kvp.Value * item.OriginalScaledQuantity
                 }
             }
             

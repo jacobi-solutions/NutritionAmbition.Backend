@@ -579,7 +579,7 @@ namespace NutritionAmbition.Backend.API.Services
                         // Assign ApiServingKind using our new helper method
                         ApiServingKind = UnitKindHelper.InferUnitKindOrDefault(food.ServingUnit),
                         // Copy raw nutrition values directly
-                        Calories = (int)(food.Calories ?? 0),
+                        Calories = food.Calories ?? 0,
                         Protein = food.Protein ?? 0,
                         Carbohydrates = food.TotalCarbohydrate ?? 0,
                         Fat = food.TotalFat ?? 0,
@@ -645,15 +645,16 @@ namespace NutritionAmbition.Backend.API.Services
             foreach (var item in foodItems)
             {
                 // Diagnostic logging for protein value tracking
-                _logger.LogInformation("[PROTEIN_SCALE_DEBUG] ConvertFoodItemsToFoodNutrition: Converting {ItemName}, Protein={Protein}, OriginalScaledQuantity={OriginalScaledQuantity}, Quantity={Quantity}, Unit={Unit}",
-                    item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+                _logger.LogInformation("[PROTEIN_SCALE_DEBUG] Final values after scaling: {ItemName}, Protein={Protein}, Quantity={Quantity}, Unit={Unit}",
+                    item.Name, item.Protein, item.Quantity, item.Unit);
+
                 
                 var foodNutrition = new FoodNutrition
                 {
                     Name = item.Name,
                     BrandName = item.BrandName,
                     // Use OriginalScaledQuantity for display to show user the real amount
-                    Quantity = item.OriginalScaledQuantity.ToString(),
+                    Quantity = item.Quantity.ToString(),
                     Unit = item.Unit,
                     Calories = item.Calories,
                     Macronutrients = new Macronutrients
@@ -777,11 +778,10 @@ namespace NutritionAmbition.Backend.API.Services
                     _logger.LogWarning("Skipping scaling for {FoodName} - missing API serving unit", item.Name);
                     
                     // Even if we skip scaling, normalize Quantity to 1 and store original quantity
-                    item.OriginalScaledQuantity = quantity;
-                    item.Quantity = 1;
+                    item.Quantity = quantity;
                     item.Unit = unit;
                     
-                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Normalizing {ItemName} Quantity to 1 even without scaling", item.Name);
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Skipping scaling and preserving user input for {ItemName}: Quantity={Quantity}, Unit={Unit}", item.Name, item.Quantity, item.Unit);
                     return;
                 }
                 
@@ -802,22 +802,21 @@ namespace NutritionAmbition.Backend.API.Services
                     // Scale the nutrition values using our centralized method
                     UnitScalingHelpers.ScaleNutrition(item, multiplier.Value, _logger);
                     
-                    // Update the unit to match user's specified unit (ScaleNutrition already sets Quantity=1)
-                    item.Unit = unit;
+                    item.Quantity = multiplier.Value;
+                    item.Unit = apiServingUnit;
                     
                     _logger.LogInformation("[PROTEIN_SCALE_DEBUG] Final values after scaling: {ItemName}, Protein={Protein}, OriginalScaledQuantity={OriginalScaledQuantity}, Quantity={Quantity}, Unit={Unit}",
-                        item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+                        item.Name, item.Protein, item.Quantity, item.Quantity, item.Unit);
                 }
                 else
                 {
                     _logger.LogWarning("[PROTEIN_SCALE_DEBUG] Failed to calculate multiplier for {ItemName}", item.Name);
-                    
-                    // Even if we can't calculate a multiplier, normalize Quantity to 1 and store original quantity
-                    item.OriginalScaledQuantity = quantity;
-                    item.Quantity = 1;
+
+                    // Fallback: use user-provided quantity and unit without scaling                    
+                    item.Quantity = quantity;
                     item.Unit = unit;
                     
-                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Normalizing {ItemName} Quantity to 1 without multiplier", item.Name);
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Failed to calculate multiplier, using user input for {ItemName}: Quantity={Quantity}, Unit={Unit}", item.Name, item.Quantity, item.Unit);
                 }
             }
             catch (Exception ex)

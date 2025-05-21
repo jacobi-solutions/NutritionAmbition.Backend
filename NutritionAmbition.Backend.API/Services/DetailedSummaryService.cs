@@ -82,8 +82,8 @@ namespace NutritionAmbition.Backend.API.Services
                 // Diagnostic logging for protein values in food items
                 foreach (var item in foodItems)
                 {
-                    _logger.LogInformation("[PROTEIN_SCALE_DEBUG] GetDetailedSummaryAsync: Raw food item {ItemName}, Protein={Protein}, OriginalScaledQuantity={OriginalQuantity}, Quantity={Quantity}, Unit={Unit}",
-                        item.Name, item.Protein, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+                    _logger.LogInformation("[PROTEIN_SCALE_DEBUG] GetDetailedSummaryAsync: Raw food item {ItemName}, Protein={Protein}, OriginalScaledQuantity={OriginalQuantity}, OriginalScaledQuantity={OriginalScaledQuantity}, Unit={Unit}",
+                        item.Name, item.Protein, item.Quantity, item.Quantity, item.Unit);
                 }
 
                 // Generate nutrient breakdowns
@@ -100,8 +100,8 @@ namespace NutritionAmbition.Backend.API.Services
                     nutritionTotals.TotalProtein);
                 
                 // Compute total fiber, sugar, and saturated fat - values are already scaled
-                double totalFiber = foodItems.Sum(i => i.Fiber); // Previously: i.Fiber * i.Quantity
-                double totalSugar = foodItems.Sum(i => i.Sugar); // Previously: i.Sugar * i.Quantity
+                double totalFiber = foodItems.Sum(i => i.Fiber); // Previously: i.Fiber * i.OriginalScaledQuantity
+                double totalSugar = foodItems.Sum(i => i.Sugar); // Previously: i.Sugar * i.OriginalScaledQuantity
                 double totalSaturatedFat = nutritionTotals.TotalSaturatedFat; // Assuming this is already fixed
                 
                 _logger.LogInformation("[DOUBLE_SCALE_CHECK] Computed summary totals: TotalFiber={TotalFiber}, TotalSugar={TotalSugar}, TotalSaturatedFat={TotalSaturatedFat}",
@@ -194,13 +194,13 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     if (item.Micronutrients.TryGetValue(nutrientName, out double amount) && amount > 0)
                     {
-                        // NOTE: Values are already scaled - do not multiply by item.Quantity
-                        double totalAmount = amount; // Previously was: amount * item.Quantity
+                        // NOTE: Values are already scaled - do not multiply by item.OriginalScaledQuantity
+                        double totalAmount = amount; // Previously was: amount * item.OriginalScaledQuantity
                         breakdown.TotalAmount += totalAmount;
                         
                         // Log the food item's original unit
-                        _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food: {Name}, OriginalScaledQuantity: {OriginalQuantity}, Quantity: {Quantity}, Unit: {Unit}, Contributing nutrient {Nutrient}: {Amount}", 
-                            item.Name, item.OriginalScaledQuantity, item.Quantity, item.Unit, nutrientName, amount);
+                        _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food: {Name}, OriginalScaledQuantity: {OriginalQuantity}, OriginalScaledQuantity: {OriginalScaledQuantity}, Unit: {Unit}, Contributing nutrient {Nutrient}: {Amount}", 
+                            item.Name, item.Quantity, item.Quantity, item.Unit, nutrientName, amount);
                         
                         // Ensure the food unit exists - use a default if not provided
                         var foodUnit = !string.IsNullOrEmpty(item.Unit) ? item.Unit : "serving";
@@ -212,8 +212,8 @@ namespace NutritionAmbition.Backend.API.Services
                             Amount = totalAmount,
                             Unit = GetNutrientUnit(nutrientName), // Keep nutrient unit for consistent measurements
                             FoodUnit = foodUnit, // Preserve the original food unit for display
-                            // Optionally add a property for display quantity if needed
-                            DisplayQuantity = item.OriginalScaledQuantity
+                            // Optionally add a property for display OriginalScaledQuantity if needed
+                            DisplayQuantity = item.Quantity
                         });
                     }
                 }
@@ -248,13 +248,13 @@ namespace NutritionAmbition.Backend.API.Services
                 double nutrientValue = valueSelector(item);
                 if (nutrientValue > 0)
                 {
-                    // NOTE: Values are already scaled - do not multiply by item.Quantity
-                    double totalAmount = nutrientValue; // Previously was: nutrientValue * item.Quantity
+                    // NOTE: Values are already scaled - do not multiply by item.OriginalScaledQuantity
+                    double totalAmount = nutrientValue; // Previously was: nutrientValue * item.OriginalScaledQuantity
                     breakdown.TotalAmount += totalAmount;
                     
                     // Log the food item's original unit
-                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food: {Name}, OriginalScaledQuantity: {OriginalQuantity}, Quantity: {Quantity}, Unit: {Unit}, Contributing {Nutrient}: {Amount}", 
-                        item.Name, item.OriginalScaledQuantity, item.Quantity, item.Unit, nutrientName, nutrientValue);
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food: {Name}, OriginalScaledQuantity: {OriginalQuantity}, OriginalScaledQuantity: {OriginalScaledQuantity}, Unit: {Unit}, Contributing {Nutrient}: {Amount}", 
+                        item.Name, item.Quantity, item.Quantity, item.Unit, nutrientName, nutrientValue);
                     
                     // Ensure the food unit exists - use a default if not provided
                     var foodUnit = !string.IsNullOrEmpty(item.Unit) ? item.Unit : "serving";
@@ -266,8 +266,8 @@ namespace NutritionAmbition.Backend.API.Services
                         Amount = totalAmount,
                         Unit = GetNutrientUnit(nutrientName), // Keep nutrient unit for consistent measurements
                         FoodUnit = foodUnit, // Preserve the original food unit for display
-                        // Optionally add a property for display quantity if needed
-                        DisplayQuantity = item.OriginalScaledQuantity
+                        // Optionally add a property for display OriginalScaledQuantity if needed
+                        DisplayQuantity = item.Quantity
                     });
                 }
             }
@@ -299,13 +299,13 @@ namespace NutritionAmbition.Backend.API.Services
                 double nutrientValue = valueSelector(item);
                 if (nutrientValue > 0)
                 {
-                    // NOTE: Values are already scaled - do not multiply by item.Quantity
-                    double totalAmount = nutrientValue; // Previously was: nutrientValue * item.Quantity
+                    // NOTE: Values are already scaled - do not multiply by item.OriginalScaledQuantity
+                    double totalAmount = nutrientValue; // Previously was: nutrientValue * item.OriginalScaledQuantity
                     breakdown.TotalAmount += totalAmount;
                     
                     // Log the food item's original unit
-                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food: {Name}, OriginalScaledQuantity: {OriginalQuantity}, Quantity: {Quantity}, Unit: {Unit}, Contributing micronutrient {Nutrient}: {Amount}", 
-                        item.Name, item.OriginalScaledQuantity, item.Quantity, item.Unit, nutrientName, nutrientValue);
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food: {Name}, OriginalScaledQuantity: {OriginalQuantity}, OriginalScaledQuantity: {OriginalScaledQuantity}, Unit: {Unit}, Contributing micronutrient {Nutrient}: {Amount}", 
+                        item.Name, item.Quantity, item.Quantity, item.Unit, nutrientName, nutrientValue);
                     
                     // Ensure the food unit exists - use a default if not provided
                     var foodUnit = !string.IsNullOrEmpty(item.Unit) ? item.Unit : "serving";
@@ -317,8 +317,8 @@ namespace NutritionAmbition.Backend.API.Services
                         Amount = totalAmount,
                         Unit = GetNutrientUnit(nutrientName), // Keep nutrient unit for consistent measurements
                         FoodUnit = foodUnit, // Preserve the original food unit for display
-                        // Optionally add a property for display quantity if needed
-                        DisplayQuantity = item.OriginalScaledQuantity
+                        // Optionally add a property for display OriginalScaledQuantity if needed
+                        DisplayQuantity = item.Quantity
                     });
                 }
             }
@@ -339,15 +339,15 @@ namespace NutritionAmbition.Backend.API.Services
             // Group by food name
             var groupedFoods = foodItems
                 .GroupBy(f => f.Name)
-                .OrderByDescending(g => g.Sum(f => f.OriginalScaledQuantity)); // Use OriginalScaledQuantity for sorting
+                .OrderByDescending(g => g.Sum(f => f.Quantity)); // Use OriginalScaledQuantity for sorting
             
             foreach (var group in groupedFoods)
             {
                 // Log units for all items in this group
                 foreach (var item in group)
                 {
-                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food group item: {Name}, OriginalScaledQuantity: {OriginalQuantity}, Quantity: {Quantity}, Unit: {Unit}", 
-                        item.Name, item.OriginalScaledQuantity, item.Quantity, item.Unit);
+                    _logger.LogInformation("[DOUBLE_SCALE_CHECK] Food group item: {Name}, OriginalScaledQuantity: {OriginalQuantity}, OriginalScaledQuantity: {OriginalScaledQuantity}, Unit: {Unit}", 
+                        item.Name, item.Quantity, item.Quantity, item.Unit);
                 }
                 
                 // Always use the first item's unit for display consistency
@@ -367,7 +367,7 @@ namespace NutritionAmbition.Backend.API.Services
                     Name = group.Key,
                     BrandName = firstItem.BrandName,
                     // Use sum of OriginalScaledQuantity for total display amount
-                    TotalAmount = group.Sum(f => f.OriginalScaledQuantity),
+                    TotalAmount = group.Sum(f => f.Quantity),
                     Unit = unitToUse
                 };
                 
@@ -398,7 +398,7 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 foreach (var nutrient in allMicronutrients)
                 {
-                    // Values are already scaled - do not multiply by item.Quantity
+                    // Values are already scaled - do not multiply by item.OriginalScaledQuantity
                     double totalAmount = group.Sum(f => 
                         f.Micronutrients.TryGetValue(nutrient, out double value) ? value : 0);
                     
@@ -429,7 +429,7 @@ namespace NutritionAmbition.Backend.API.Services
             Func<FoodItem, double> valueSelector,
             string unit)
         {
-            // Values are already scaled - do not multiply by Quantity
+            // Values are already scaled - do not multiply by OriginalScaledQuantity
             double totalAmount = group.Sum(f => valueSelector(f));
             
             _logger.LogInformation("[DOUBLE_SCALE_CHECK] Adding nutrient {Nutrient} to food group {FoodName}, TotalAmount={Amount}",
