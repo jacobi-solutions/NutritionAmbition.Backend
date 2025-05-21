@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using NutritionAmbition.Backend.API.Constants;
 
 namespace NutritionAmbition.Backend.API.Services
 {
@@ -165,19 +166,35 @@ namespace NutritionAmbition.Backend.API.Services
                     new {
                         type = "function",
                         name = "ScoreBrandedFoods",
-                        description = "Score each branded food from 1 (worst) to 10 (best) for how closely it matches the user's description. Return a list of integers.",
+                        description = "Score each branded food item from 0 (no match) to 100 (perfect match). Each input item includes an 'id' and a 'name'. Return a list of objects with the same ids and their corresponding scores. Use the full scale and score every item individually.",
                         parameters = new {
                             type = "object",
                             properties = new {
                                 scores = new {
                                     type = "array",
-                                    items = new { type = "integer", minimum = 1, maximum = 10 },
-                                    description = "List of scores corresponding to each branded food item"
+                                    items = new {
+                                        type = "object",
+                                        properties = new {
+                                            id = new {
+                                                type = "string",
+                                                description = "The unique identifier of the branded food item (e.g. nix_item_id)"
+                                            },
+                                            score = new {
+                                                type = "integer",
+                                                minimum = 0,
+                                                maximum = 100,
+                                                description = "How well this branded item matches the user's description (0 = poor, 100 = perfect)"
+                                            }
+                                        },
+                                        required = new[] { "id", "score" }
+                                    },
+                                    description = "List of scored branded food items, each with its id and score"
                                 }
                             },
                             required = new[] { "scores" }
                         }
                     }
+
                 }
             };
         }

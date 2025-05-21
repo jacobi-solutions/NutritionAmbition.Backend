@@ -72,7 +72,8 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="unit">The unit of the food</param>
         /// <param name="brandedFoods">List of potential branded food matches</param>
         /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
-        Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods);
+        Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods);
+        // Task<string> SelectBestBrandedFoodAsync(string foodDescription, List<BrandedFoodItem> brandedFoods);
     }
 
     /// <summary>
@@ -786,22 +787,35 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="unit">The unit of the food</param>
         /// <param name="brandedFoods">List of potential branded food matches</param>
         /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
-        public async Task<int> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods)
+        public async Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods)
+        //public async Task<string> SelectBestBrandedFoodAsync(string foodDescription, List<BrandedFoodItem> brandedFoods)
         {
             if (brandedFoods == null || !brandedFoods.Any())
             {
-                return -1;
+                return null;
             }
 
             try
             {
-                _logger.LogInformation("Selecting best branded food with OpenAI from {Count} options for query: {UserQuery} ({Quantity} {Unit})", 
-                    brandedFoods.Count, userQuery, quantity, unit);
+                // _logger.LogInformation("Selecting best branded food with OpenAI from {Count} options for query: {UserQuery} ({Quantity} {Unit})", 
+                //     brandedFoods.Count, userQuery, quantity, unit);
 
+             
+
+                // var toolInput = new
+                // {
+                //     userQuery = $"{foodDescription}",
+                //     options = brandedFoods.Select(f => $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving").ToList()
+                // };
                 var toolInput = new
                 {
                     userQuery = $"{quantity} {unit} of {userQuery}",
-                    options = brandedFoods.Select(f => $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving").ToList()
+                    //userQuery = foodDescription,
+                    options = brandedFoods.Select(f => new
+                    {
+                        id = f.NixItemId,
+                        name = $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving"
+                    }).ToList()
                 };
 
                 var response = await RunFunctionCallAsync(
@@ -815,7 +829,7 @@ namespace NutritionAmbition.Backend.API.Services
                 if (response.ToolCalls.Count == 0)
                 {
                     _logNoToolCallsForBrandedFood(_logger, null);
-                    return -1;
+                    return null;
                 }
 
                 // We need to find the tool call for our ScoreBrandedFoods function
@@ -823,7 +837,7 @@ namespace NutritionAmbition.Backend.API.Services
                 if (scoreTool == null)
                 {
                     _logNoValidScoreBrandedFoodsTool(_logger, null);
-                    return -1;
+                    return null;
                 }
 
                 try
@@ -833,27 +847,27 @@ namespace NutritionAmbition.Backend.API.Services
                     if (toolOutput?.Scores == null || toolOutput.Scores.Count != brandedFoods.Count)
                     {
                         _logInvalidScoreCount(_logger, brandedFoods.Count, toolOutput?.Scores?.Count ?? 0, null);
-                        return -1;
+                        return null;
                     }
 
-                    var maxScore = toolOutput.Scores.Max();
-                    var selectedIndex = toolOutput.Scores.IndexOf(maxScore);
+                    // Find the scored item with the highest score
+                    var bestMatch = toolOutput.Scores.OrderByDescending(s => s.Score).First();
 
-                    _logger.LogInformation("Selected branded food: index {SelectedIndex}, score {MaxScore}, name: {Name}",
-                        selectedIndex, maxScore, brandedFoods[selectedIndex].FoodName);
+                    // Log and return the ID directly
+                    _logger.LogInformation("Selected branded food: id {BestId}, score {Score}", bestMatch.Id, bestMatch.Score);
 
-                    return selectedIndex;
+                    return bestMatch.Id;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to parse tool output for ScoreBrandedFoods.");
-                    return -1;
+                    return null;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error selecting best branded food with OpenAI for query: {UserQuery}", userQuery);
-                return -1; // Return -1 to indicate no match on error
+                return null; // Return -1 to indicate no match on error
             }
         }
 
@@ -946,7 +960,16 @@ namespace NutritionAmbition.Backend.API.Services
         private class ScoreBrandedFoodsOutput
         {
             [JsonPropertyName("scores")]
-            public List<int> Scores { get; set; } = new List<int>();
+            public List<BrandedFoodScore> Scores { get; set; } = new List<BrandedFoodScore>();
+        }
+
+        private class BrandedFoodScore
+        {
+            [JsonPropertyName("id")]
+            public string Id { get; set; } = string.Empty;
+
+            [JsonPropertyName("score")]
+            public int Score { get; set; }
         }
 
         #endregion

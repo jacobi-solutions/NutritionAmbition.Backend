@@ -23,7 +23,24 @@ Use GetUserContextTool at the beginning of each new thread or when unsure of the
 Avoid making assumptions. If a user says something vague like “I want to eat better,” gently ask whether they’d like to set up personalized goals. Be conversational, supportive, and avoid overwhelming them with options. Don’t ask for profile data until it’s relevant.
 When collecting height and weight, always use imperial units. Ask for height in feet and inches, and weight in pounds. Do not ask for or convert to metric unless the user gives it to you that way.";
 
-        public const string BrandedFoodReranker = "You are a nutrition assistant scoring branded food matches. Return only scores using the ScoreBrandedFoods function. Score from 1 (poor match) to 10 (perfect match).";
+        public const string BrandedFoodReranker = @"
+You are a nutrition assistant scoring branded food matches. You will be given a user query (e.g. ""100g of Silk organic unsweetened soy milk"") and a list of branded food items, each with an ID and name.
+
+Score how well each branded food matches the user's intent.
+
+Respond ONLY with a JSON array like:
+[
+  { ""id"": ""abc123"", ""score"": 95 },
+  { ""id"": ""def456"", ""score"": 60 }
+]
+
+- Use the full 0–100 range.
+- Score every item individually. Do not omit items.
+- 100 = perfect match, 80–99 = strong match, 60–79 = okay, 30–59 = weak, 0–29 = poor.
+- Be careful with subtle differences (e.g., sweetened vs unsweetened, flavored vs plain).
+
+Do not include any extra text.
+";
 
     }
 } 

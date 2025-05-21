@@ -213,18 +213,15 @@ namespace NutritionAmbition.Backend.API.Services
                                 searchResults.Branded.Count, brandedItem.Name);
 
                             // Use OpenAI to select the best branded food match
-                            int selectedIndex = await _openAiResponsesService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
-
-                            if (selectedIndex >= 0 && selectedIndex < searchResults.Branded.Count)
+                            //var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync(foodDescription, searchResults.Branded);
+                            var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
+                            if (!string.IsNullOrWhiteSpace(selectedNixItemId))
                             {
-                                var selectedBrandedItem = searchResults.Branded[selectedIndex];
-                                _logger.LogInformation("Selected branded food: {BrandName} {FoodName}",
-                                    selectedBrandedItem.BrandName, selectedBrandedItem.FoodName);
 
                                 try
                                 {
                                     // Get detailed nutrition data using the Nix Item ID
-                                    var brandedNutritionData = await GetBrandedNutritionDataAsync(selectedBrandedItem.NixItemId);
+                                    var brandedNutritionData = await GetBrandedNutritionDataAsync(selectedNixItemId);
 
                                     if (brandedNutritionData != null)
                                     {
@@ -234,12 +231,12 @@ namespace NutritionAmbition.Backend.API.Services
                                         brandedProcessed++;
 
                                         _logger.LogInformation("Successfully retrieved nutrition data for branded food with NixItemId: {NixItemId}",
-                                            selectedBrandedItem.NixItemId);
+                                            selectedNixItemId);
                                     }
                                     else
                                     {
                                         _logger.LogWarning("Failed to get nutrition data for selected branded food with NixItemId: {NixItemId}",
-                                            selectedBrandedItem.NixItemId);
+                                            selectedNixItemId);
                                         genericItems.Add(brandedItem); // Process as generic if nutrition data retrieval failed
                                         missingItems.Add(brandedItem.Name);
                                     }
@@ -247,7 +244,7 @@ namespace NutritionAmbition.Backend.API.Services
                                 catch (Exception ex)
                                 {
                                     _logger.LogError(ex, "Error fetching nutrition data for branded food with NixItemId: {NixItemId}",
-                                        selectedBrandedItem.NixItemId);
+                                        selectedNixItemId);
                                     genericItems.Add(brandedItem); // Process as generic if nutrition data retrieval failed
                                     missingItems.Add(brandedItem.Name);
                                 }
@@ -647,7 +644,16 @@ namespace NutritionAmbition.Backend.API.Services
         {
             try
             {
-                var groupedItems = await _openAiService.GroupFoodItemsAsync(description, foodItems);
+                // todo v2 UX upgrade candidate
+                // var groupedItems = await _openAiService.GroupFoodItemsAsync(description, foodItems);
+                var groupedItems = new List<FoodGroup>
+                {
+                    new FoodGroup
+                    {
+                        GroupName = "Meal",
+                        Items = foodItems
+                    }
+                };
                 if (groupedItems == null || !groupedItems.Any())
                 {
                     _logger.LogWarning("AI grouping failed, falling back to individual groups");
