@@ -121,6 +121,8 @@ builder.Services.AddScoped<IOpenAiService, OpenAiService>();
 builder.Services.AddHttpClient<OpenAiResponsesService>();
 builder.Services.AddScoped<IOpenAiResponsesService, OpenAiResponsesService>();
 builder.Services.AddSingleton<IToolDefinitionRegistry, ToolDefinitionRegistry>();
+// Register SystemPromptResolver
+builder.Services.AddSingleton<ISystemPromptResolver, SystemPromptResolver>();
 builder.Services.AddOptions<OpenAiSettings>().Configure(options => 
 {
     options.ApiKey = openAiSettings.ApiKey;

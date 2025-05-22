@@ -34,6 +34,7 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly ILogger<ConversationService> _logger;
         private readonly IOpenAiResponsesService _openAiResponsesService;
         private readonly IToolDefinitionRegistry _toolDefinitionRegistry;
+        private readonly ISystemPromptResolver _systemPromptResolver;
 
         public ConversationService(
             ChatMessageRepository chatMessageRepository,
@@ -43,7 +44,8 @@ namespace NutritionAmbition.Backend.API.Services
             IDailyGoalService dailyGoalService,
             ILogger<ConversationService> logger,
             IOpenAiResponsesService openAiResponsesService,
-            IToolDefinitionRegistry toolDefinitionRegistry)
+            IToolDefinitionRegistry toolDefinitionRegistry,
+            ISystemPromptResolver systemPromptResolver)
         {
             _chatMessageRepository = chatMessageRepository;
             _foodEntryRepository = foodEntryRepository;
@@ -53,6 +55,7 @@ namespace NutritionAmbition.Backend.API.Services
             _logger = logger;
             _openAiResponsesService = openAiResponsesService;
             _toolDefinitionRegistry = toolDefinitionRegistry;
+            _systemPromptResolver = systemPromptResolver;
         }
 
         public async Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal)
@@ -330,10 +333,13 @@ namespace NutritionAmbition.Backend.API.Services
 
                 string? previousResponseId = lastAssistantMessage?.ResponseId;
 
+                // Get system prompt from default initially
+                string systemPrompt = SystemPrompts.DefaultNutritionAssistant;
+
                 // Build the input messages
                 var inputMessages = new List<object>
                 {
-                    new { role = "system", content = SystemPrompts.DefaultNutritionAssistant },
+                    new { role = "system", content = systemPrompt },
                     new { role = "user", content = message }
                 };
 
@@ -423,7 +429,7 @@ namespace NutritionAmbition.Backend.API.Services
                                 accountId,
                                 response,
                                 toolOutputs,
-                                SystemPrompts.DefaultNutritionAssistant,
+                                _systemPromptResolver.GetPromptForToolContext(response.ToolCalls),
                                 message
                             );
 
