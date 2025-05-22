@@ -13,8 +13,6 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface INutritionService
     {
-        Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription);
-        Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription);
         Task<NutritionApiResponse> GetSmartNutritionDataAsync(string accountId, string foodDescription);
     }
 
@@ -80,74 +78,6 @@ namespace NutritionAmbition.Backend.API.Services
                 throw new InvalidOperationException($"Nutritionix returned no data for TagName {tagName}");
             }
             return response;
-        }
-
-        public async Task<NutritionApiResponse> GetNutritionDataForFoodItemAsync(string accountId, string foodDescription)
-        {
-            // ... existing implementation ...
-            var response = new NutritionApiResponse();
-            try
-            {
-                _logger.LogInformation("Getting nutrition data for food item via Nutritionix: {FoodDescription}", foodDescription);
-
-                var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(foodDescription);
-
-                if (nutritionixResponse == null || !nutritionixResponse.Foods.Any())
-                {
-                    _logger.LogWarning("Nutritionix returned no data for: {FoodDescription}", foodDescription);
-                    response.AddError("Could not find nutrition data for the specified food.");
-                    return response;
-                }
-
-                var foodItems = MapNutritionixResponseToFoodItem(nutritionixResponse);
-                response.Foods = ConvertFoodItemsToFoodNutrition(foodItems);
-                response.IsSuccess = true;
-                return response;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting nutrition data for food item: {FoodDescription}", foodDescription);
-                response.AddError($"Error getting nutrition data: {ex.Message}");
-                return response;
-            }
-        }
-
-        public async Task<NutritionApiResponse> ProcessFoodTextAndGetNutritionAsync(string accountId, string foodDescription)
-        {
-            var response = new NutritionApiResponse();
-            try
-            {
-                _logger.LogInformation("Processing food text and getting nutrition data via Nutritionix for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
-
-                // 1. Get nutrition data from Nutritionix
-                var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(foodDescription);
-
-                if (nutritionixResponse == null || !nutritionixResponse.Foods.Any())
-                {
-                    _logger.LogWarning("Nutritionix returned no data for: {FoodDescription}", foodDescription);
-                    response.AddError("Could not find nutrition data for the specified food description.");
-                    return response;
-                }
-
-                // 2. Map Nutritionix response to our internal FoodItem structure
-                var foodItems = MapNutritionixResponseToFoodItem(nutritionixResponse);
-                response.Foods = ConvertFoodItemsToFoodNutrition(foodItems);
-                response.IsSuccess = true;
-
-                // 3. 🟢 Save the FoodEntry to the database (with grouping)
-                if (response.IsSuccess && response.Foods.Any())
-                {
-                    await SaveFoodEntryAsync(accountId, foodDescription, foodItems);  
-                }
-
-                return response;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing food text and getting nutrition data for Account {AccountId}: {FoodDescription}", accountId, foodDescription);
-                response.AddError($"Error processing food text: {ex.Message}");
-                return response;
-            }
         }
 
         public async Task<NutritionApiResponse> GetSmartNutritionDataAsync(string accountId, string foodDescription)

@@ -35,55 +35,55 @@ namespace NutritionAmbition.Backend.API.Controllers
             _dailySummaryService = dailySummaryService;
         }
 
-        [HttpPost("GetNutritionDataForFoodItem")]
-        public async Task<ActionResult<NutritionApiResponse>> GetNutritionDataForFoodItem([FromBody] FoodItemRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
+        // [HttpPost("GetNutritionDataForFoodItem")]
+        // public async Task<ActionResult<NutritionApiResponse>> GetNutritionDataForFoodItem([FromBody] FoodItemRequest request)
+        // {
+        //     if (!ModelState.IsValid)
+        //     {
+        //         return BadRequest(ModelState);
+        //     }
 
-            // Get account using the extension method which handles both auth types
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized();
-            }
+        //     // Get account using the extension method which handles both auth types
+        //     var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+        //     if (account == null)
+        //     {
+        //         return Unauthorized();
+        //     }
 
-            _logger.LogInformation("Getting nutrition data for food item: {FoodDescription}", request.FoodDescription);
+        //     _logger.LogInformation("Getting nutrition data for food item: {FoodDescription}", request.FoodDescription);
             
-            // Use the updated method that directly queries Nutritionix
-            var response = await _nutritionService.GetNutritionDataForFoodItemAsync(account.Id, request.FoodDescription);
+        //     // Use the updated method that directly queries Nutritionix
+        //     var response = await _nutritionService.GetNutritionDataForFoodItemAsync(account.Id, request.FoodDescription);
                 
-            return Ok(response);
-        }
+        //     return Ok(response);
+        // }
 
-        [HttpPost("ProcessFoodTextAndGetNutrition")]
-        public async Task<ActionResult<NutritionApiResponse>> ProcessFoodTextAndGetNutrition([FromBody] ParseFoodTextRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
+        // [HttpPost("ProcessFoodTextAndGetNutrition")]
+        // public async Task<ActionResult<NutritionApiResponse>> ProcessFoodTextAndGetNutrition([FromBody] ParseFoodTextRequest request)
+        // {
+        //     if (!ModelState.IsValid)
+        //     {
+        //         return BadRequest(ModelState);
+        //     }
 
-            // Get account using the extension method which handles both auth types
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized();
-            }
+        //     // Get account using the extension method which handles both auth types
+        //     var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+        //     if (account == null)
+        //     {
+        //         return Unauthorized();
+        //     }
 
-            _logger.LogInformation("Processing food text and getting nutrition data: {FoodDescription}", request.FoodDescription);
+        //     _logger.LogInformation("Processing food text and getting nutrition data: {FoodDescription}", request.FoodDescription);
 
-            // Use the streamlined method that handles everything automatically
-            var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(account.Id, request.FoodDescription);
-            if (!nutritionData.IsSuccess)
-            {
-                return BadRequest(new { error = "Failed to process food text and get nutrition data", details = nutritionData.Errors });
-            }
+        //     // Use the streamlined method that handles everything automatically
+        //     var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(account.Id, request.FoodDescription);
+        //     if (!nutritionData.IsSuccess)
+        //     {
+        //         return BadRequest(new { error = "Failed to process food text and get nutrition data", details = nutritionData.Errors });
+        //     }
 
-            return Ok(nutritionData);
-        }
+        //     return Ok(nutritionData);
+        // }
 
         [HttpPost("GetSmartNutritionData")]
         public async Task<ActionResult<NutritionApiResponse>> GetSmartNutritionData([FromBody] ParseFoodTextRequest request)
