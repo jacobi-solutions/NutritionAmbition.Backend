@@ -64,17 +64,7 @@ namespace NutritionAmbition.Backend.API.Services
         /// <returns>A response containing the assistant's final message</returns>
         Task<BotMessageResponse> SubmitToolOutputsAsync(string accountId, BotMessageResponse initialResponse, Dictionary<string, string> toolOutputs, string systemPrompt, string userMessage, string model = OpenAiConstants.ModelGpt4o);
 
-        /// <summary>
-        /// Selects the best matching branded food item from a list of branded foods
-        /// </summary>
-        /// <param name="userQuery">The user's food description</param>
-        /// <param name="quantity">The quantity of the food</param>
-        /// <param name="unit">The unit of the food</param>
-        /// <param name="brandedFoods">List of potential branded food matches</param>
-        /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
-        [Obsolete]
-        Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> brandedFoods);
-        // Task<string> SelectBestBrandedFoodAsync(string foodDescription, List<BrandedFoodItem> brandedFoods);
+       
     }
 
     /// <summary>
@@ -780,87 +770,7 @@ namespace NutritionAmbition.Backend.API.Services
             return responseContent;
         }
 
-        /// <summary>
-        /// Selects the best matching branded food item from a list of branded foods
-        /// </summary>
-        /// <param name="userQuery">The user's food description</param>
-        /// <param name="quantity">The quantity of the food</param>
-        /// <param name="unit">The unit of the food</param>
-        /// <param name="brandedFoods">List of potential branded food matches</param>
-        /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
-        [Obsolete]
-        public async Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> brandedFoods)
-        {
-            if (brandedFoods == null || !brandedFoods.Any())
-            {
-                return null;
-            }
-
-            try
-            {
-                var toolInput = new
-                {
-                    userQuery = $"{quantity} {unit} of {userQuery}",
-                    //userQuery = foodDescription,
-                    options = brandedFoods.Select(f => new
-                    {
-                        id = f.NixFoodId,
-                        name = $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving"
-                    }).ToList()
-                };
-
-                var response = await RunFunctionCallAsync(
-                    "ScoreBrandedFoods",
-                    toolInput,
-                    SystemPrompts.BrandedFoodReranker,
-                    null,
-                    OpenAiConstants.ModelGpt4oMini
-                );
-
-                if (response.ToolCalls.Count == 0)
-                {
-                    _logNoToolCallsForBrandedFood(_logger, null);
-                    return null;
-                }
-
-                // We need to find the tool call for our ScoreBrandedFoods function
-                var scoreTool = response.ToolCalls.FirstOrDefault(t => t.Function.Name == "ScoreBrandedFoods");
-                if (scoreTool == null)
-                {
-                    _logNoValidScoreBrandedFoodsTool(_logger, null);
-                    return null;
-                }
-
-                try
-                {
-                    var toolOutput = JsonSerializer.Deserialize<ScoreBrandedFoodsOutput>(scoreTool.Function.ArgumentsJson);
-
-                    if (toolOutput?.Scores == null || toolOutput.Scores.Count != brandedFoods.Count)
-                    {
-                        _logInvalidScoreCount(_logger, brandedFoods.Count, toolOutput?.Scores?.Count ?? 0, null);
-                        return null;
-                    }
-
-                    // Find the scored item with the highest score
-                    var bestMatch = toolOutput.Scores.OrderByDescending(s => s.Score).First();
-
-                    // Log and return the ID directly
-                    _logger.LogInformation("Selected branded food: id {BestId}, score {Score}", bestMatch.Id, bestMatch.Score);
-
-                    return bestMatch.Id;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to parse tool output for ScoreBrandedFoods.");
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error selecting best branded food with OpenAI for query: {UserQuery}", userQuery);
-                return null; // Return -1 to indicate no match on error
-            }
-        }
+        
 
         #region Response Models
 

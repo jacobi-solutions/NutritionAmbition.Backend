@@ -45,7 +45,7 @@ namespace NutritionAmbition.Backend.API.Constants
         /// <summary>
         /// Default GPT-4o model name
         /// </summary>
-        public const string ModelGpt4o = "gpt-4o-mini";
+        public const string ModelGpt4o = "gpt-4o";
 
         /// <summary>
         /// GPT-4o-mini model name for lighter tasks

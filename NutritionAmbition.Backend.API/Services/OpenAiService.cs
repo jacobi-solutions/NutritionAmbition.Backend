@@ -12,11 +12,9 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IOpenAiService
     {
         Task<ParseFoodTextResponse> ParseFoodTextAsync(string foodDescription);
-        Task<string> SelectBestGenericFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> commonFoods);
         Task<List<FoodGroup>> GroupFoodItemsAsync(string originalDescription, List<FoodItem> foodItems);
         Task<string> CreateChatCompletionAsync(string systemPrompt, string userPrompt);
         Task<string> GetChatResponseAsync(List<object> messages, int? maxTokens = null, double? temperature = null, string responseFormat = null);
-        Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> brandedFoods);
         Task<string> SelectBestFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> foodOptions, bool isBranded);    
     }
 
@@ -75,9 +73,9 @@ namespace NutritionAmbition.Backend.API.Services
                 // Construct the request payload as a Dictionary
                 var requestBody = new Dictionary<string, object?>
                 {
-                    ["model"] = _openAiSettings.Model,
+                    ["model"] = OpenAiConstants.ModelGpt4o,
                     ["messages"] = messages,
-                    ["temperature"] = temperature ?? _openAiSettings.DefaultTemperature
+                    ["temperature"] = _openAiSettings.DefaultTemperature
                 };
                 
                 // Add optional parameters only if they have values
@@ -146,76 +144,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
         
-        public async Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> brandedFoods)
-        {
-            if (brandedFoods == null || !brandedFoods.Any())
-            {
-                return null;
-            }
-
-            try
-            {
-                _logger.LogInformation("Selecting best branded food with prompt for query: {Query}", userQuery);
-
-                var formattedOptions = new StringBuilder();
-                for (int i = 0; i < brandedFoods.Count; i++)
-                {
-                    var food = brandedFoods[i];
-                    formattedOptions.AppendLine($"{i + 1}. {food.BrandName} {food.FoodName}, {food.ServingQty} {food.ServingUnit} per serving [id: {food.NixFoodId}]");
-                }
-
-                var messages = new List<object>
-                {
-                    new {
-                        role = OpenAiConstants.SystemRole,
-                        content = @"You are a nutrition assistant. Your job is to help choose the best branded food item that matches the user's input. You will be given a user query and a numbered list of branded food options with IDs.
-
-Choose the SINGLE best match and return only its ID in JSON format:
-
-{ ""bestId"": ""abc123"" }
-
-Do NOT include any explanation or extra text. Only return the JSON object."
-                    },
-                    new {
-                        role = OpenAiConstants.UserRole,
-                        content = $"User query: {quantity} {unit} of {userQuery}\n\nOptions:\n{formattedOptions}"
-                    }
-                };
-
-                var aiResponse = await GetChatResponseAsync(
-                    messages,
-                    null,
-                    _openAiSettings.ZeroTemperature,
-                    OpenAiConstants.JsonObjectFormat
-                );
-
-                _logger.LogDebug("Raw response for branded selection: {Raw}", aiResponse);
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(aiResponse);
-                    var root = doc.RootElement;
-
-                    if (root.TryGetProperty("bestId", out var bestIdProp))
-                    {
-                        return bestIdProp.GetString();
-                    }
-
-                    _logger.LogWarning("No 'bestId' found in branded selection response");
-                    return null;
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogError(ex, "Failed to parse JSON for branded food prompt response");
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in SelectBestBrandedFoodWithPromptAsync");
-                return null;
-            }
-        }
+        
 
         public async Task<string> SelectBestFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> foodOptions, bool isBranded)
         {
@@ -361,82 +290,7 @@ Do NOT include any explanation or extra text. Only return the JSON object.";
             }
         }
 
-        /// <summary>
-        /// Selects the best matching generic food item from a list of common foods
-        /// </summary>
-        /// <param name="userQuery">The user's food description</param>
-        /// <param name="commonFoods">List of potential common food matches</param>
-        /// <returns>The index of the best matching common food item (0-based) or -1 if no match</returns>
-        public async Task<string> SelectBestGenericFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> commonFoods)
-        {
-            if (commonFoods == null || !commonFoods.Any())
-        {
-            return null;
-        }
-
-        try
-            {
-                _logger.LogInformation("Selecting best generic food with OpenAI from {Count} options for: {Quantity} {Unit} {FoodName}",
-                    commonFoods.Count, quantity, unit, userQuery);
-
-                var formattedOptions = new StringBuilder();
-                for (int i = 0; i < commonFoods.Count; i++)
-                {
-                    var food = commonFoods[i];
-                    formattedOptions.AppendLine($"{i + 1}. {food.FoodName}, {food.FoodName} {food.ServingUnit} per serving [id: {food.NixFoodId}]");
-                }
-
-                var messages = new List<object>
-                {
-                    new
-                    {
-                        role = OpenAiConstants.SystemRole,
-                        content = @"You are a nutrition assistant helping users match their food descriptions to the best generic food from a list.
-
-You will be given a user query (e.g., '100 g of nonfat greek yogurt') numbered list of food options with IDs. Choose the SINGLE best match and return only its ID in JSON format:
-
-{ ""bestId"": ""abc123"" }
-
-Do NOT include any explanation or extra text. Only return the JSON object."
-                    },
-                    new
-                    {
-                        role = OpenAiConstants.UserRole,
-                        content = $"User query: {quantity} {unit} of {userQuery}\n\nOptions:\n{formattedOptions}"
-                    }
-                };
-
-                var aiResponse = await GetChatResponseAsync(messages, null, _openAiSettings.LowTemperature, OpenAiConstants.JsonObjectFormat);
-
-                _logger.LogDebug("Raw OpenAI response for generic selection: {Response}", aiResponse);
-
-                try
-                {
-                    using var doc = JsonDocument.Parse(aiResponse);
-                    var root = doc.RootElement;
-
-                    if (root.TryGetProperty("bestId", out var bestIdProp))
-                    {
-                        return bestIdProp.GetString();
-                    }
-
-                    _logger.LogWarning("No 'bestId' found in branded selection response");
-                    return null;
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogError(ex, "Failed to parse JSON for branded food prompt response");
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error selecting best generic food for: {FoodQuery}", $"{quantity} {unit} of {userQuery}");
-                return null;
-            }
-        }
-
-
+       
         /// <summary>
         /// Groups food items into logical meal groups using AI
         /// </summary>

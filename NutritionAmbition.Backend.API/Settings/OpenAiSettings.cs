@@ -18,7 +18,7 @@ namespace NutritionAmbition.Backend.API.Settings
         /// <summary>
         /// Model to use for chat completions (e.g., gpt-4, gpt-3.5-turbo)
         /// </summary>
-        public string Model { get; set; } = string.Empty;
+        // public string Model { get; set; } = string.Empty;
         
         /// <summary>
         /// ID of the assistant to use for thread runs

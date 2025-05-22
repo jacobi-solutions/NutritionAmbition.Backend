@@ -201,16 +201,13 @@ namespace NutritionAmbition.Backend.API.Services
                     var fallbackResponse = await _nutritionixService.GetNutritionDataAsync(searchQuery);
                     if (fallbackResponse?.Foods.Any() == true)
                     {
-                        var mappedItems = MapNutritionixResponseToFoodItem(fallbackResponse);
-                        foreach (var foodItem in mappedItems)
+                        var normalizedFoodItems = MapAndNormalizeNutritionixResponseToFoodItem(fallbackResponse);
+                        foreach (var normalizedFoodItem in normalizedFoodItems)
                         {
-                            ScaleFoodItemFromUserInput(foodItem, item.Quantity, item.Unit,
-                                fallbackResponse.Foods.FirstOrDefault()?.ServingQty,
-                                fallbackResponse.Foods.FirstOrDefault()?.ServingUnit,
-                                fallbackResponse.Foods.FirstOrDefault()?.ServingWeightGrams);
+                            ScaleFoodItemFromUserInput(normalizedFoodItem, item.Quantity, item.Unit);
                         }
 
-                        return (mappedItems, true);
+                        return (normalizedFoodItems, true);
                     }
                 }
 
@@ -223,7 +220,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        private List<FoodItem> MapNutritionixResponseToFoodItem(NutritionixResponse nutritionixResponse)
+        private List<FoodItem> MapAndNormalizeNutritionixResponseToFoodItem(NutritionixResponse nutritionixResponse)
         {
             var mappedFoods = new List<FoodItem>();
 
@@ -248,12 +245,44 @@ namespace NutritionAmbition.Backend.API.Services
                         Micronutrients = new Dictionary<string, double>()
                     };
 
+                    if (food.ServingWeightGrams.HasValue && food.ServingQty > 0)
+                    {
+                        foodItem.WeightGramsPerUnit = food.ServingWeightGrams.Value / food.ServingQty;
+                    }
+
                     NutritionixNutrientMapper.MapMacronutrients(food, foodItem);
                     NutritionixNutrientMapper.MapMicronutrients(food, foodItem);
 
+
+                    // Normalize nutrient values to a per-unit baseline
+                    if (food.ServingQty != 1 && food.ServingQty > 0)
+                    {
+                        double normalizationFactor = 1.0 / food.ServingQty;
+
+                        foodItem.Calories *= normalizationFactor;
+                        foodItem.Protein *= normalizationFactor;
+                        foodItem.Carbohydrates *= normalizationFactor;
+                        foodItem.Fat *= normalizationFactor;
+                        if (foodItem.WeightGramsPerUnit.HasValue)
+                        {
+                            foodItem.WeightGramsPerUnit *= normalizationFactor;
+                        }
+
+                        foreach (var key in foodItem.Micronutrients.Keys.ToList())
+                            {
+                                foodItem.Micronutrients[key] *= normalizationFactor;
+                            }
+
+                        foodItem.Quantity = 1;
+                        foodItem.Unit = food.ServingUnit ?? string.Empty;
+
+                        
+                    }
+                    
                     mappedFoods.Add(foodItem);
                 }
             }
+            
             return mappedFoods;
         }
 
@@ -335,40 +364,36 @@ namespace NutritionAmbition.Backend.API.Services
         /// Centralized helper method for scaling food items based on user input
         /// </summary>
         /// <param name="item">Food item to scale</param>
-        /// <param name="quantity">User's requested quantity</param>
-        /// <param name="unit">User's requested unit</param>
+        /// <param name="scaleToQuantity">User's requested quantity</param>
+        /// <param name="scaleToUnit">User's requested unit</param>
         /// <param name="apiServingQty">API-provided serving quantity (from Nutritionix)</param>
         /// <param name="apiServingUnit">API-provided serving unit (from Nutritionix)</param>
         /// <param name="apiServingWeightG">API-provided serving weight in grams (from Nutritionix)</param>
         private void ScaleFoodItemFromUserInput(
             FoodItem item,
-            double quantity,
-            string unit,
-            double? apiServingQty,
-            string? apiServingUnit,
-            double? apiServingWeightG)
+            double scaleToQuantity,
+            string scaleToUnit)
         {
             try
             {
                 // Skip scaling if required values are missing
-                if (string.IsNullOrWhiteSpace(apiServingUnit))
+                if (string.IsNullOrWhiteSpace(item.Unit))
                 {
                     _logger.LogWarning("Skipping scaling for {FoodName} - missing API serving unit", item.Name);
 
-                    // Even if we skip scaling, normalize Quantity to 1 and store original quantity
-                    item.Quantity = quantity;
-                    item.Unit = unit;
+                    item.Quantity = scaleToQuantity;
+                    item.Unit = scaleToUnit;
 
                     return;
                 }
 
                 // Calculate multiplier using standardized scaling logic
-                var multiplier = UnitScalingHelpers.ScaleFromUserInput(
-                    quantity,
-                    unit,
-                    apiServingQty ?? 1,
-                    apiServingUnit,
-                    apiServingWeightG,
+                var multiplier = UnitScalingHelpers.GetMultiplierFromUserInput(
+                    scaleToQuantity,
+                    scaleToUnit,
+                    item.Quantity,
+                    item.Unit,
+                    item.WeightGramsPerUnit,
                     item.ApiServingKind);
 
                 if (multiplier.HasValue)
@@ -376,15 +401,15 @@ namespace NutritionAmbition.Backend.API.Services
                     // Scale the nutrition values using our centralized method
                     UnitScalingHelpers.ScaleNutrition(item, multiplier.Value, _logger);
 
-                    item.Quantity = multiplier.Value;
-                    item.Unit = apiServingUnit;
+                    item.Quantity = scaleToQuantity;
+                    item.Unit = scaleToUnit;
 
                 }
                 else
                 {
                     // Fallback: use user-provided quantity and unit without scaling                    
-                    item.Quantity = quantity;
-                    item.Unit = unit;
+                    item.Quantity = scaleToQuantity;
+                    item.Unit = scaleToUnit;
 
                 }
             }
@@ -403,24 +428,18 @@ namespace NutritionAmbition.Backend.API.Services
                 Foods = new List<NutritionixFood> { nutritionixFood }
             };
 
-            var foodItems = MapNutritionixResponseToFoodItem(response);
+            var normalizedFoodItems = MapAndNormalizeNutritionixResponseToFoodItem(response);
 
-            // Fallback if serving weight is missing
-            var servingWeightG = nutritionixFood.ServingWeightGrams
-                            ?? UnitScalingHelpers.TryInferMassFromVolume(nutritionixFood.ServingUnit);
 
-            foreach (var item in foodItems)
+            foreach (var normalizedFoodItem in normalizedFoodItems)
             {
                 ScaleFoodItemFromUserInput(
-                    item,
+                    normalizedFoodItem,
                     originalInput.Quantity,
-                    originalInput.Unit,
-                    nutritionixFood.ServingQty,
-                    nutritionixFood.ServingUnit,
-                    servingWeightG);
+                    originalInput.Unit);
             }
 
-            return foodItems;
+            return normalizedFoodItems;
         }
         
         private async Task SaveFoodEntryAsync(string accountId, string description, List<FoodItem> foodItems)

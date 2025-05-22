@@ -18,8 +18,8 @@ namespace NutritionAmbition.Backend.API.Models
         /// This value is used for display purposes to show the actual amount the user consumed.
         /// </summary>
         public double Quantity { get; set; } = 0.0;
-
         public string Unit { get; set; } = string.Empty;
+        public double? WeightGramsPerUnit { get; set; }
         public double Calories { get; set; } = 0.0;
         public double Protein { get; set; } = 0.0;
         public double Carbohydrates { get; set; } = 0.0;

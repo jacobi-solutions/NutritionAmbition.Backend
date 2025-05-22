@@ -218,7 +218,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             var response = await _conversationService.RunResponsesConversationAsync(account.Id, request.Message);
 
             stopwatch.Stop();
-            _logger.LogInformation("SomeAsyncOperation took {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
+            _logger.LogWarning("RunResponsesConversationAsync took {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
 
             response.LoggedMeal = response.ToolCalls.Any(t =>
                 string.Equals(t.Function?.Name, AssistantToolTypes.LogMealTool, StringComparison.OrdinalIgnoreCase));
