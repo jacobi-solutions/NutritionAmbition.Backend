@@ -102,88 +102,105 @@ namespace NutritionAmbition.Backend.API.Helpers
         /// <param name="apiServingKind">The kind of unit used for the API serving (Weight, Volume, or Count)</param>
         /// <returns>A multiplier representing how many API servings are in the user's OriginalScaledQuantity, or null if it can't be determined</returns>
         public static double? GetMultiplierFromUserInput(
-            double userQty, string userUnit,
-            double servingQty, string servingUnit,
+            double  userQty,          string userUnit,
+            double  servingQty,       string servingUnit,
             double? servingWeightG,
-            UnitKind apiServingKind = UnitKind.Weight
-        )
+            UnitKind apiServingKind = UnitKind.Weight)
         {
-            var normalizedUserUnit = NormalizeUnit(userUnit, apiServingKind);
-            var normalizedServingUnit = NormalizeUnit(servingUnit); // API units don't need disambiguation
-
-
-            if (UnitsMatch(normalizedUserUnit, normalizedServingUnit))
-            {
+            // 1️⃣— exact unit match after normalisation
+            if (UnitsMatch(userUnit, servingUnit, apiServingKind))
                 return userQty / servingQty;
-            }
 
-            // Case 1: direct unit match (ignores any parentheses in servingUnit)
-            if (UnitsMatch(normalizedUserUnit, servingUnit))
-            {
-                return userQty / servingQty;
-            }
-
-            // Case 2: try to extract inner unit (e.g. "cup (8 fl oz)")
+            // 2️⃣— try inner “(8 fl oz)” style match
             var parenStart = servingUnit.IndexOf('(');
-            var parenEnd = servingUnit.IndexOf(')');
+            var parenEnd   = servingUnit.IndexOf(')');
             if (parenStart >= 0 && parenEnd > parenStart)
             {
-                var inner = servingUnit.Substring(parenStart + 1, parenEnd - parenStart - 1); // e.g. "8 fl oz"
+                var inner = servingUnit[(parenStart + 1)..parenEnd];          // "8 fl oz"
                 var parts = inner.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2 &&
                     double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var innerQty))
                 {
-                    var innerUnit = string.Join(' ', parts[1..]).Trim().ToLowerInvariant();
-
-                    if (normalizedUserUnit == innerUnit)
+                    var innerUnit = string.Join(' ', parts[1..]);             // "fl oz"
+                    if (UnitsMatch(userUnit, innerUnit, apiServingKind))
                     {
-                        var totalServingAmount = servingQty * innerQty; // e.g. 1 cup (8 fl oz) → 8
+                        var totalServingAmount = servingQty * innerQty;       // 1 cup (8 fl oz) → 8
                         return userQty / totalServingAmount;
                     }
                 }
             }
+            // 2½. if user unit is blank AND we’re in a count context, rely on qty ratio
+            if (string.IsNullOrWhiteSpace(userUnit) && apiServingKind == UnitKind.Count)
+                return userQty / servingQty;
 
-            // Case 3: fallback to grams
-            var userG = TryConvertToGrams(userQty, normalizedUserUnit);
-            var servingG = servingWeightG ?? TryConvertToGrams(servingQty, servingUnit);
 
-            if (userG != null && servingG != null && servingG.Value > 0)
-                return userG.Value / servingG.Value;
+            var normalizedUserUnit    = NormalizeUnit(userUnit,    apiServingKind);
+            var normalizedServingUnit = NormalizeUnit(servingUnit);          // <- add this
 
-            return null;
+            var userG    = TryConvertToGrams(userQty,  normalizedUserUnit);
+            var servingG = servingWeightG
+               ?? TryConvertToGrams(servingQty, normalizedServingUnit);
+
+            return (userG != null && servingG is > 0) ? userG / servingG : null;
         }
 
 
-        private static string NormalizeUnit(string raw, UnitKind? kind = null)
+
+        /// <summary>
+        /// Canonicalise a unit string so that
+        ///   • synonyms collapse to one token (“tablespoons” → “tbsp”)  
+        ///   • spacing / punctuation are stripped (“fl oz” → “floz”, “cup (8 fl oz)” → “cup”)  
+        ///   • plural “s” is removed after synonym-mapping so “servings” → “serving”.
+        /// The <paramref name="kind"/> hint is only needed for the
+        /// “oz”-vs-“fl oz” ambiguity.
+        /// </summary>
+        private static string NormalizeUnit(string? raw, UnitKind? kind = null)
         {
-            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
 
             var u = raw.ToLowerInvariant().Trim();
 
+            // Drop anything after a comma or the first opening parenthesis
             int cut = u.IndexOfAny(new[] { ',', '(' });
             if (cut >= 0) u = u[..cut].Trim();
 
-            // synonym / plural collapse
+            // Common canonical mappings
             u = u switch
             {
-                "tablespoon" or "tbs" or "tbsp"      => "tbsp",
-                "teaspoon"  or "tsp"                => "tsp",
-                "ounce" or "ounces"                 => kind == UnitKind.Volume ? "floz" : "oz",
-                "gram" or "grams"                   => "g",
-                "milliliter" or "milliliters" or "ml"=> "ml",
-                "liter" or "liters" or "l"          => "l",
-                "cups"                              => "cup",
-                _                                    => u
+                // Kitchen spoons
+                "tablespoon" or "tablespoons" or "tbs" or "tbsp"          => "tbsp",
+                "teaspoon"  or "teaspoons"  or "tsp"                      => "tsp",
+
+                // Ambiguous "ounce"
+                "ounce" or "ounces" => kind == UnitKind.Volume ? "floz" : "oz",
+                "fl oz" or "fl_oz" or "fl.oz" or "floz"                   => "floz",
+
+                // Metric
+                "gram" or "grams"                                        => "g",
+                "kilogram" or "kilograms" or "kg"                        => "kg",
+                "milliliter" or "milliliters" or "ml"                    => "ml",
+                "liter" or "liters" or "l"                               => "l",
+
+                // Countable
+                "cup" or "cups"                                          => "cup",
+                "pieces"                                                 => "piece",
+                "servings"                                               => "serving",
+
+                _ => u
             };
 
-            // crude plural strip for anything still ending in 's'
-            if (u.EndsWith('s') && u.Length > 1) u = u[..^1];
+            // Final best-effort plural strip
+            if (u.EndsWith('s') && u.Length > 1)
+                u = u[..^1];
 
-            // remove interior spaces (fl oz ➜ floz)
+            // Remove interior spaces
             u = u.Replace(" ", string.Empty);
 
             return u;
         }
+
+
 
 
         /// <summary>

@@ -31,41 +31,7 @@ namespace NutritionAmbition.Backend.API.Helpers
             "serving", "servings", "item", "items", "unit", "units", "each"
         };
 
-        /// <summary>
-        /// Classifies a serving unit into one of the UnitKind categories (Weight, Volume, or Count)
-        /// </summary>
-        /// <param name="unit">The unit string to classify</param>
-        /// <returns>The UnitKind category for the given unit</returns>
-        /// <exception cref="InvalidOperationException">Thrown when the unit cannot be classified</exception>
-        public static UnitKind ClassifyServingUnit(string unit)
-        {
-            if (string.IsNullOrWhiteSpace(unit))
-            {
-                throw new InvalidOperationException($"Cannot classify empty or null unit");
-            }
-
-            // Extract base unit from parenthetical expressions
-            // For example, "cup (8 fl oz)" -> "cup"
-            string baseUnit = unit.Split('(')[0].Trim().ToLowerInvariant();
-
-            // Check if the unit contains any of the known unit strings
-            if (WeightUnits.Any(wu => baseUnit.Contains(wu)))
-            {
-                return UnitKind.Weight;
-            }
-
-            if (VolumeUnits.Any(vu => baseUnit.Contains(vu)))
-            {
-                return UnitKind.Volume;
-            }
-
-            if (CountUnits.Any(cu => baseUnit.Contains(cu)))
-            {
-                return UnitKind.Count;
-            }
-
-            throw new InvalidOperationException($"Cannot classify unit: '{unit}'");
-        }
+        
         
         /// <summary>
         /// Infers the UnitKind from a unit string, defaulting to Count if the unit cannot be classified.
@@ -76,7 +42,18 @@ namespace NutritionAmbition.Backend.API.Helpers
         {
             try
             {
-                return ClassifyServingUnit(unit ?? string.Empty);
+                if (string.IsNullOrWhiteSpace(unit))
+                return UnitKind.Count;                          // default → Count
+
+            string baseUnit = unit.Split('(')[0]               // strip "(…)"
+                                .Trim()
+                                .ToLowerInvariant();
+
+            if (WeightUnits.Any(wu  => baseUnit == wu)) return UnitKind.Weight;
+            if (VolumeUnits.Any(vu  => baseUnit == vu)) return UnitKind.Volume;
+            if (CountUnits .Any(cu  => baseUnit == cu)) return UnitKind.Count;
+
+            return UnitKind.Count;
             }
             catch
             {

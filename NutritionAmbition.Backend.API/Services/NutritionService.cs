@@ -332,6 +332,31 @@ namespace NutritionAmbition.Backend.API.Services
             return foodNutritions;
         }
 
+        // private string BuildSearchQuery(ParsedFoodItem item)
+        // {
+        //     var parts = new List<string>();
+
+        //     // 2 tbsp peanut butter  →  "2 tbsp peanut butter"
+        //     // 2 egg                 →  "2 egg"
+        //     if (item.Quantity > 0 && !string.IsNullOrWhiteSpace(item.Unit))
+        //     {
+        //         // avoid “egg egg”, “avocado avocado” …
+        //         if (!item.Unit.Equals(item.Name, StringComparison.OrdinalIgnoreCase))
+        //             parts.Add($"{item.Quantity} {item.Unit}");
+        //         else
+        //             parts.Add($"{item.Quantity} {item.Unit}".Trim());  // still “2 egg”
+        //     }
+
+        //     if (!string.IsNullOrWhiteSpace(item.Description))
+        //         parts.Add(item.Description);
+
+        //     if (!string.IsNullOrWhiteSpace(item.Brand))
+        //         parts.Add(item.Brand);
+
+        //     parts.Add(item.Name);     // always include the name once
+
+        //     return string.Join(' ', parts);
+        // }
         private string BuildSearchQuery(ParsedFoodItem item)
         {
             var queryComponents = new List<string>();
@@ -400,7 +425,6 @@ namespace NutritionAmbition.Backend.API.Services
                 {
                     // Scale the nutrition values using our centralized method
                     UnitScalingHelpers.ScaleNutrition(item, multiplier.Value, _logger);
-
                     item.Quantity = scaleToQuantity;
                     item.Unit = scaleToUnit;
 

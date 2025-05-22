@@ -236,15 +236,39 @@ Do NOT include any explanation or extra text. Only return the JSON object.";
                 var messages = new List<object>
                 {
                     new
-                    {
-                        role = OpenAiConstants.SystemRole,
-                        content = "You are a nutrition assistant. Break down the user's food description into individual food items. For each item, extract:\n\nname (string, short and generic like \"greek yogurt\")\n\ndescription (string, optional — include any modifiers like \"non-fat\", \"vanilla\", \"plain\", \"grass-fed\", etc. Use comma-separated phrases if there are multiple.)\n\nquantity (number)\n\nunit (string)\n\nbrand (string, optional — leave empty if no brand mentioned)\n\nisBranded (boolean)\n\nRespond ONLY with a JSON object structured like this:\n\n{\n  \"foods\": [\n    { \"name\": \"coffee\", \"description\": \"non-fat, vanilla, plain\", \"quantity\": 16, \"unit\": \"oz\", \"brand\": \"\", \"isBranded\": false },\n    { \"name\": \"cheese pizza\", \"description\": \"thin crust, extra cheese\", \"quantity\": 1, \"unit\": \"large slice\", \"brand\": \"mellow mushroom\", \"isBranded\": true }\n  ]\n}\n\nNo extra text. No explanations."
-                    },
-                    new
-                    {
-                        role = OpenAiConstants.UserRole,
-                        content = foodDescription
-                    }
+                        {
+                            role = OpenAiConstants.SystemRole,
+                            content =
+@"You are a nutrition assistant.  Break the user’s text into individual food items.
+
+For **each** item return these fields *(all lower-case keys)*:
+
+• **name** – short, generic (e.g. ""greek yogurt"", ""brown rice"")  
+• **description** – optional modifiers, comma-separated (""low-fat, vanilla"")  
+• **quantity** – number only (fractions OK: 0.5, 2.25)  
+• **unit** – the unit string.  
+  - If the user gives a plain count without a unit (""2 cookies"", ""half an orange""),  
+    leave **unit** empty  
+• **brand** – optional; empty string if none mentioned  
+• **isBranded** – boolean (true = user named a brand)
+
+Respond **only** with a JSON payload:
+
+{
+  ""foods"": [
+    { ""name"": ""coffee"",        ""description"": ""black"",                ""quantity"": 12,  ""unit"": ""fl oz"",       ""brand"": """",           ""isBranded"": false },
+    { ""name"": ""protein bar"",  ""description"": ""chocolate peanut"",     ""quantity"": 1,   ""unit"": ""bar"",         ""brand"": ""clif"",       ""isBranded"": true  }
+  ]
+}
+
+No extra keys, comments, or explanatory text."
+                        },
+                        new
+                        {
+                            role  = OpenAiConstants.UserRole,
+                            content = foodDescription
+                        }
+
                 };
 
 
