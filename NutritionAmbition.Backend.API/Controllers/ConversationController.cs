@@ -210,8 +210,11 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return Unauthorized();
             }
 
-            var result = await _conversationService.RunResponsesConversationAsync(account.Id, request.Message);
-            return Ok(result);
+            var response = await _conversationService.RunResponsesConversationAsync(account.Id, request.Message);
+            response.LoggedMeal = response.ToolCalls.Any(t =>
+                string.Equals(t.Function?.Name, AssistantToolTypes.LogMealTool, StringComparison.OrdinalIgnoreCase));
+
+            return Ok(response);
         }
     }
 } 

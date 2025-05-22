@@ -9,14 +9,22 @@ namespace NutritionAmbition.Backend.API.Helpers
     /// </summary>
     public static class NutritionixNutrientMapper
     {
-        public static IReadOnlyDictionary<int, (string Name, string Unit)> All => NutrientMap;
+        public static IReadOnlyDictionary<int, (string Name, string Unit)> All => MicroNutrientMap;
         /// <summary>
         /// Attempts to map a Nutritionix nutrient attribute ID to a nutrient name and unit.
         /// Returns null if the attribute ID is not recognized.
         /// </summary>
         /// <param name="attrId">The Nutritionix attribute ID.</param>
         /// <returns>A tuple containing the nutrient name and unit, or null if not recognized.</returns>
-        private static readonly Dictionary<int, (string Name, string Unit)> NutrientMap = new()
+        
+        private static readonly Dictionary<int, (string Name, string Unit)> MacroNutrientMap = new()
+        {
+            { 203, ("Protein", "g") },
+            { 204, ("Fat", "g") },
+            { 205, ("Carbohydrate", "g") },
+            { 208, ("Calories", "g") },
+        };
+        private static readonly Dictionary<int, (string Name, string Unit)> MicroNutrientMap = new()
         {
             { 207, ("Ash", "g") },
             { 209, ("Starch", "g") },
@@ -124,12 +132,14 @@ namespace NutritionAmbition.Backend.API.Helpers
             { 1006, ("Allulose", "g") }
         };
 
-        public static (string Name, string Unit)? TryMapNutrient(int attrId)
+        public static (string Name, string Unit)? TryMapMicroNutrient(int attrId)
         {
-            return NutrientMap.TryGetValue(attrId, out var mapped)
+            return MicroNutrientMap.TryGetValue(attrId, out var mapped)
                 ? mapped
                 : null;
         }
+
+       
 
 
         /// <summary>
@@ -144,13 +154,26 @@ namespace NutritionAmbition.Backend.API.Helpers
 
             foreach (var nutrient in source.FullNutrients)
             {
-                var mapped = TryMapNutrient(nutrient.AttrId);
-                
+                var mapped = TryMapMicroNutrient(nutrient.AttrId);
+
                 if (mapped != null)
                 {
                     target.Micronutrients[mapped.Value.Name] = nutrient.Value;
                 }
             }
+        }
+
+       public static void MapMacronutrients(NutritionixFood source, FoodItem target)
+        {
+            target.Calories = GetMacroValue(source, 208);
+            target.Protein = GetMacroValue(source, 203);
+            target.Carbohydrates = GetMacroValue(source, 205);
+            target.Fat = GetMacroValue(source, 204);
+        }
+
+        private static double GetMacroValue(NutritionixFood source, int attrId)
+        {
+            return source.FullNutrients?.FirstOrDefault(n => n.AttrId == attrId)?.Value ?? 0;
         }
     }
 } 

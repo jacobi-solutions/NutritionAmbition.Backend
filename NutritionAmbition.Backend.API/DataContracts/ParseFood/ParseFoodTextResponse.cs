@@ -6,7 +6,7 @@ namespace NutritionAmbition.Backend.API.DataContracts
     {
         public List<ParsedFoodItem> Foods { get; set; } = new List<ParsedFoodItem>();
     }
-    
+
     public class ParsedFoodItem
     {
         public string Name { get; set; } = string.Empty;
@@ -14,5 +14,6 @@ namespace NutritionAmbition.Backend.API.DataContracts
         public double Quantity { get; set; }
         public string Unit { get; set; } = string.Empty;
         public bool IsBranded { get; set; }
+        public string Description { get; set; } = string.Empty;
     }
 }

@@ -72,7 +72,8 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="unit">The unit of the food</param>
         /// <param name="brandedFoods">List of potential branded food matches</param>
         /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
-        Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods);
+        [Obsolete]
+        Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> brandedFoods);
         // Task<string> SelectBestBrandedFoodAsync(string foodDescription, List<BrandedFoodItem> brandedFoods);
     }
 
@@ -787,8 +788,8 @@ namespace NutritionAmbition.Backend.API.Services
         /// <param name="unit">The unit of the food</param>
         /// <param name="brandedFoods">List of potential branded food matches</param>
         /// <returns>The index of the best matching branded food item (0-based) or -1 if no match</returns>
-        public async Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<BrandedFoodItem> brandedFoods)
-        //public async Task<string> SelectBestBrandedFoodAsync(string foodDescription, List<BrandedFoodItem> brandedFoods)
+        [Obsolete]
+        public async Task<string> SelectBestBrandedFoodAsync(string userQuery, double quantity, string unit, List<NutritionixFood> brandedFoods)
         {
             if (brandedFoods == null || !brandedFoods.Any())
             {
@@ -797,23 +798,13 @@ namespace NutritionAmbition.Backend.API.Services
 
             try
             {
-                // _logger.LogInformation("Selecting best branded food with OpenAI from {Count} options for query: {UserQuery} ({Quantity} {Unit})", 
-                //     brandedFoods.Count, userQuery, quantity, unit);
-
-             
-
-                // var toolInput = new
-                // {
-                //     userQuery = $"{foodDescription}",
-                //     options = brandedFoods.Select(f => $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving").ToList()
-                // };
                 var toolInput = new
                 {
                     userQuery = $"{quantity} {unit} of {userQuery}",
                     //userQuery = foodDescription,
                     options = brandedFoods.Select(f => new
                     {
-                        id = f.NixItemId,
+                        id = f.NixFoodId,
                         name = $"{f.BrandName} {f.FoodName}, {f.ServingQty} {f.ServingUnit} per serving"
                     }).ToList()
                 };

@@ -49,6 +49,17 @@ namespace NutritionAmbition.Backend.API.Services
             _dailySummaryService = dailySummaryService;
         }
 
+        private async Task<NutritionixFood> GetNutritionDataByNixItemIdAsync(string nixItemId)
+        {
+            // Call Nutritionix API to fetch nutrition data by NixItemId
+            var response = await _nutritionixClient.GetNutritionByItemIdAsync(nixItemId);
+            if (response == null)
+            {
+                throw new InvalidOperationException($"Nutritionix returned no data for NixItemId {nixItemId}");
+            }
+            return response;
+        }
+
         private async Task<NutritionixFood> GetBrandedNutritionDataAsync(string nixItemId)
         {
             // Call Nutritionix API to fetch nutrition data by NixItemId
@@ -63,7 +74,7 @@ namespace NutritionAmbition.Backend.API.Services
         private async Task<NutritionixFood> GetGenericNutritionDataAsync(string tagName)
         {
             // Call Nutritionix API to fetch generic food nutrition data by TagName
-            var response = await _nutritionixClient.GetNutritionByTagNameAsync(tagName);
+            var response = await _nutritionixClient.GetNutritionByItemIdAsync(tagName);
             if (response == null)
             {
                 throw new InvalidOperationException($"Nutritionix returned no data for TagName {tagName}");
@@ -213,15 +224,15 @@ namespace NutritionAmbition.Backend.API.Services
                                 searchResults.Branded.Count, brandedItem.Name);
 
                             // Use OpenAI to select the best branded food match
-                            //var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync(foodDescription, searchResults.Branded);
-                            var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
+                            // var selectedNixItemId = await _openAiResponsesService.SelectBestBrandedFoodAsync($"{brandedItem.Brand} {brandedItem.Name}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded);
+                            var selectedNixItemId = await _openAiService.SelectBestFoodAsync($"{brandedItem.Brand} {brandedItem.Name}: {brandedItem.Description}", brandedItem.Quantity, brandedItem.Unit, searchResults.Branded, isBranded: true);
                             if (!string.IsNullOrWhiteSpace(selectedNixItemId))
                             {
 
                                 try
                                 {
                                     // Get detailed nutrition data using the Nix Item ID
-                                    var brandedNutritionData = await GetBrandedNutritionDataAsync(selectedNixItemId);
+                                    var brandedNutritionData = searchResults.Branded.FirstOrDefault(x => x.NixFoodId.Equals(selectedNixItemId));// await GetdNutritionDataByNixItemIdAsync(selectedNixItemId);
 
                                     if (brandedNutritionData != null)
                                     {
@@ -280,7 +291,7 @@ namespace NutritionAmbition.Backend.API.Services
                         try
                         {
                             _logger.LogInformation("Looking up generic item: {Name} ({Quantity} {Unit})",
-                                genericItem.Name, genericItem.Quantity, genericItem.Unit);
+                                 genericItem.Name, genericItem.Quantity, genericItem.Unit);
 
                             // Build a more natural search query combining all information
                             string searchQuery = BuildSearchQuery(genericItem);
@@ -295,91 +306,80 @@ namespace NutritionAmbition.Backend.API.Services
                                     searchResults.Common.Count, genericItem.Name);
 
                                 // Use OpenAI to select the best generic food match
-                                int selectedIndex = await _openAiService.SelectBestGenericFoodAsync(genericItem.Name, searchResults.Common);
+                                var selectedNixItemId = await _openAiService.SelectBestFoodAsync($"{genericItem.Name}: {genericItem.Description}", genericItem.Quantity, genericItem.Unit, searchResults.Common, isBranded: false);
 
-                                if (selectedIndex >= 0 && selectedIndex < searchResults.Common.Count)
+                                try
                                 {
-                                    var selectedCommonItem = searchResults.Common[selectedIndex];
-                                    _logger.LogInformation("Selected generic food: {FoodName}", selectedCommonItem.FoodName);
-
-                                    try
+                                    // Get detailed nutrition data using the TagName
+                                    if (!string.IsNullOrEmpty(selectedNixItemId))
                                     {
-                                        // Get detailed nutrition data using the TagName
-                                        if (!string.IsNullOrEmpty(selectedCommonItem.TagName))
+                                        var genericNutritionData = searchResults.Common.FirstOrDefault(x => x.NixFoodId.Equals(selectedNixItemId));// await GetNutritionDataByNixItemIdAsync(selectedNixItemId);
+
+                                        if (genericNutritionData != null)
                                         {
-                                            var genericNutritionData = await GetGenericNutritionDataAsync(selectedCommonItem.TagName);
+                                            var foodItems = await ResolveAndScaleNutritionixFoodAsync(genericNutritionData, genericItem);
 
-                                            if (genericNutritionData != null)
-                                            {
-                                                var foodItems = await ResolveAndScaleNutritionixFoodAsync(genericNutritionData, genericItem);
+                                            allFoodItems.AddRange(foodItems);
+                                            genericProcessed++;
 
-                                                allFoodItems.AddRange(foodItems);
-                                                genericProcessed++;
-
-                                                _logger.LogInformation("Successfully retrieved nutrition data for generic food with TagName: {TagName}",
-                                                    selectedCommonItem.TagName);
-                                            }
-                                            else
-                                            {
-                                                _logger.LogWarning("Failed to get nutrition data for selected generic food with TagName: {TagName}",
-                                                    selectedCommonItem.TagName);
-                                                missingItems.Add(genericItem.Name);
-                                            }
+                                            _logger.LogInformation("Successfully retrieved nutrition data for generic food with TagName: {TagName}",
+                                                selectedNixItemId);
                                         }
                                         else
                                         {
-                                            // Fallback to using food name if TagName is not available
-                                            _logger.LogWarning("No TagName available for selected generic food, falling back to food name: {FoodName}",
-                                                selectedCommonItem.FoodName);
-
-                                            // Create a basic ParsedFoodItem to use with our query builder
-                                            var queryItem = new ParsedFoodItem
-                                            {
-                                                Name = selectedCommonItem.FoodName,
-                                                Quantity = genericItem.Quantity,
-                                                Unit = genericItem.Unit
-                                            };
-
-                                            string fallbackSearchQuery = BuildSearchQuery(queryItem);
-                                            _logger.LogInformation("Using fallback search query: {SearchQuery}", fallbackSearchQuery);
-
-                                            var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(fallbackSearchQuery);
-
-                                            if (nutritionixResponse != null && nutritionixResponse.Foods.Any())
-                                            {
-                                                var foodItems = MapNutritionixResponseToFoodItem(nutritionixResponse);
-
-                                                foreach (var foodItem in foodItems)
-                                                {
-                                                    ScaleFoodItemFromUserInput(
-                                                        foodItem,
-                                                        genericItem.Quantity,
-                                                        genericItem.Unit,
-                                                        nutritionixResponse.Foods.FirstOrDefault()?.ServingQty,
-                                                        nutritionixResponse.Foods.FirstOrDefault()?.ServingUnit,
-                                                        nutritionixResponse.Foods.FirstOrDefault()?.ServingWeightGrams);
-                                                }
-
-                                                allFoodItems.AddRange(foodItems);
-                                                genericProcessed++;
-                                            }
-                                            else
-                                            {
-                                                _logger.LogWarning("Failed to get nutrition data for selected generic food: {Query}",
-                                                    fallbackSearchQuery);
-                                                missingItems.Add(genericItem.Name);
-                                            }
+                                            _logger.LogWarning("Failed to get nutrition data for selected generic food with TagName: {TagName}",
+                                                selectedNixItemId);
+                                            missingItems.Add(genericItem.Name);
                                         }
                                     }
-                                    catch (Exception ex)
+                                    else
                                     {
-                                        _logger.LogError(ex, "Error fetching nutrition data for generic food: {Name}", genericItem.Name);
-                                        missingItems.Add(genericItem.Name);
+                                        // Fallback to using food name if TagName is not available
+                                        _logger.LogWarning("No TagName available for selected generic food, falling back to food name: {FoodName}",
+                                            selectedNixItemId);
+
+                                        // Create a basic ParsedFoodItem to use with our query builder
+                                        var queryItem = new ParsedFoodItem
+                                        {
+                                            Name = genericItem.Name,
+                                            Quantity = genericItem.Quantity,
+                                            Unit = genericItem.Unit
+                                        };
+
+                                        string fallbackSearchQuery = BuildSearchQuery(queryItem);
+                                        _logger.LogInformation("Using fallback search query: {SearchQuery}", fallbackSearchQuery);
+
+                                        var nutritionixResponse = await _nutritionixService.GetNutritionDataAsync(fallbackSearchQuery);
+
+                                        if (nutritionixResponse != null && nutritionixResponse.Foods.Any())
+                                        {
+                                            var foodItems = MapNutritionixResponseToFoodItem(nutritionixResponse);
+
+                                            foreach (var foodItem in foodItems)
+                                            {
+                                                ScaleFoodItemFromUserInput(
+                                                    foodItem,
+                                                    genericItem.Quantity,
+                                                    genericItem.Unit,
+                                                    nutritionixResponse.Foods.FirstOrDefault()?.ServingQty,
+                                                    nutritionixResponse.Foods.FirstOrDefault()?.ServingUnit,
+                                                    nutritionixResponse.Foods.FirstOrDefault()?.ServingWeightGrams);
+                                            }
+
+                                            allFoodItems.AddRange(foodItems);
+                                            genericProcessed++;
+                                        }
+                                        else
+                                        {
+                                            _logger.LogWarning("Failed to get nutrition data for selected generic food: {Query}",
+                                                fallbackSearchQuery);
+                                            missingItems.Add(genericItem.Name);
+                                        }
                                     }
                                 }
-                                else
+                                catch (Exception ex)
                                 {
-                                    _logger.LogWarning("No confident generic match found by AI for: {Name}", genericItem.Name);
+                                    _logger.LogError(ex, "Error fetching nutrition data for generic food: {Name}", genericItem.Name);
                                     missingItems.Add(genericItem.Name);
                                 }
                             }
@@ -462,15 +462,10 @@ namespace NutritionAmbition.Backend.API.Services
                         Unit = food.ServingUnit ?? string.Empty,
                         // Assign ApiServingKind using our new helper method
                         ApiServingKind = UnitKindHelper.InferUnitKindOrDefault(food.ServingUnit),
-                        // Copy raw nutrition values directly
-                        Calories = food.Calories ?? 0,
-                        Protein = food.Protein ?? 0,
-                        Carbohydrates = food.TotalCarbohydrate ?? 0,
-                        Fat = food.TotalFat ?? 0,
                         Micronutrients = new Dictionary<string, double>()
                     };
 
-                    // Map micronutrients using the centralized mapper helper
+                    NutritionixNutrientMapper.MapMacronutrients(food, foodItem);
                     NutritionixNutrientMapper.MapMicronutrients(food, foodItem);
 
                     mappedFoods.Add(foodItem);
@@ -533,6 +528,11 @@ namespace NutritionAmbition.Backend.API.Services
             if (item.Quantity > 0 && !string.IsNullOrWhiteSpace(item.Unit))
             {
                 queryComponents.Add($"{item.Quantity} {item.Unit}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.Description))
+            {
+                queryComponents.Add(item.Description);
             }
 
             // Add brand if available

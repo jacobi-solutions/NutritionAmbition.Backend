@@ -5,9 +5,9 @@ namespace NutritionAmbition.Backend.API.DataContracts
     public class SearchInstantResponse
     {
         [JsonPropertyName("branded")]
-        public List<BrandedFoodItem> Branded { get; set; } = new List<BrandedFoodItem>();
+        public List<NutritionixFood> Branded { get; set; } = new List<NutritionixFood>();
 
         [JsonPropertyName("common")]
-        public List<CommonFoodItem> Common { get; set; } = new List<CommonFoodItem>();
+        public List<NutritionixFood> Common { get; set; } = new List<NutritionixFood>();
     }
 }

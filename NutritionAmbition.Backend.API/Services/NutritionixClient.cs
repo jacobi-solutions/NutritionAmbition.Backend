@@ -76,9 +76,10 @@ namespace NutritionAmbition.Backend.API.Services
                 return new SearchInstantResponse();
             }
 
-            var responseStream = await response.Content.ReadAsStreamAsync();
-            return await JsonSerializer.DeserializeAsync<SearchInstantResponse>(responseStream, 
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new SearchInstantResponse();
+            var responseContent = await response.Content.ReadAsStringAsync();
+            var nutritionixResponse = JsonSerializer.Deserialize<SearchInstantResponse>(responseContent, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return nutritionixResponse;
         }
 
         public async Task<NutritionixFood> GetNutritionByItemIdAsync(string nixItemId)

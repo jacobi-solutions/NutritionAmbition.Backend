@@ -5,8 +5,6 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
-using NutritionAmbition.Backend.API.DataContracts;
-using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Services;
 
 namespace NutritionAmbition.Backend.API.Middleware
@@ -29,22 +27,12 @@ namespace NutritionAmbition.Backend.API.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
-            // Check if this is an endpoint that should skip authentication
-            var path = context.Request.Path.Value?.ToLower();
-            if (path != null && path.Contains("firsttimeintroductiontoappprompt"))
-            {
-                _logger.LogDebug("Skipping account resolution for path: {Path}", path);
-                await _next(context);
-                return;
-            }
-
             try
             {
                 // Check if user is Firebase-authenticated
                 var firebaseUser = context.User;
                 if (firebaseUser?.Identity?.IsAuthenticated == true)
                 {
-                    // Load real account and attach to context
                     var googleAuthUserId = firebaseUser.FindFirst("user_id")?.Value;
                     var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
                     if (account != null)
@@ -55,49 +43,67 @@ namespace NutritionAmbition.Backend.API.Middleware
                 }
                 else
                 {
-                    // Enable request body buffering for reading
+                    // Enable buffering to allow multiple reads
                     context.Request.EnableBuffering();
 
-                    // Read the body stream
+                    // If there's no body or it's not JSON, skip parsing and create new account
+                    if (context.Request.ContentLength == null || context.Request.ContentLength == 0 ||
+                        !context.Request.ContentType?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        var account = await _accountsService.CreateAnonymousAccountAsync();
+                        context.Items["Account"] = account;
+                        _logger.LogInformation("Created and attached new anonymous account {AccountId} to request context (no body or unsupported content type)", account.Id);
+                        await _next(context);
+                        return;
+                    }
+
+                    // Read and parse the body
                     string bodyContent;
                     using (var reader = new StreamReader(context.Request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true))
                     {
                         bodyContent = await reader.ReadToEndAsync();
                     }
 
-                    // Reset the stream position for subsequent reads
                     context.Request.Body.Position = 0;
 
-                    // Parse the JSON body
-                    using (var jsonDoc = JsonDocument.Parse(bodyContent))
+                    try
                     {
-                        var root = jsonDoc.RootElement;
-                        if (root.TryGetProperty("accountId", out var accountIdElement) && 
-                            accountIdElement.ValueKind == JsonValueKind.String)
+                        using (var jsonDoc = JsonDocument.Parse(bodyContent))
                         {
-                            var accountId = accountIdElement.GetString();
-                            var account = await _accountsService.GetAccountByIdAsync(accountId);
-                            
-                            if (account != null)
+                            var root = jsonDoc.RootElement;
+                            if (root.TryGetProperty("accountId", out var accountIdElement) &&
+                                accountIdElement.ValueKind == JsonValueKind.String)
                             {
-                                context.Items["Account"] = account;
-                                _logger.LogInformation("Attached existing anonymous account {AccountId} to request context", account.Id);
+                                var accountId = accountIdElement.GetString();
+                                var account = await _accountsService.GetAccountByIdAsync(accountId);
+
+                                if (account != null)
+                                {
+                                    context.Items["Account"] = account;
+                                    _logger.LogInformation("Attached existing anonymous account {AccountId} to request context", account.Id);
+                                }
+                                else
+                                {
+                                    account = await _accountsService.CreateAnonymousAccountAsync();
+                                    context.Items["Account"] = account;
+                                    _logger.LogInformation("Created and attached new anonymous account {AccountId} to request context", account.Id);
+                                }
                             }
                             else
                             {
-                                // Create new anonymous account if specified account not found
-                                account = await _accountsService.CreateAnonymousAccountAsync();
+                                var account = await _accountsService.CreateAnonymousAccountAsync();
                                 context.Items["Account"] = account;
-                                _logger.LogInformation("Created and attached new anonymous account {AccountId} to request context", account.Id);
+                                _logger.LogInformation("Created and attached new anonymous account {AccountId} to request context (no accountId in body)", account.Id);
                             }
                         }
-                        else
-                        {
-                            // Create new anonymous account if no AccountId provided
-                            var account = await _accountsService.CreateAnonymousAccountAsync();
-                            context.Items["Account"] = account;
-                            _logger.LogInformation("Created and attached new anonymous account {AccountId} to request context", account.Id);
-                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Invalid JSON in request body. Creating fallback anonymous account.");
+
+                        var account = await _accountsService.CreateAnonymousAccountAsync();
+                        context.Items["Account"] = account;
+                        _logger.LogInformation("Created and attached new anonymous account {AccountId} to request context (fallback after parse failure)", account.Id);
                     }
                 }
             }
@@ -106,7 +112,6 @@ namespace NutritionAmbition.Backend.API.Middleware
                 _logger.LogError(ex, "Error in AnonymousAuthMiddleware");
             }
 
-            // Always continue to next middleware
             await _next(context);
         }
     }
