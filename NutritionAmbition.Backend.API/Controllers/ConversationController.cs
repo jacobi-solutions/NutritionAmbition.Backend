@@ -11,6 +11,7 @@ using System;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Collections.Generic;
+using System.Diagnostics; // add this at the top
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
@@ -209,8 +210,16 @@ namespace NutritionAmbition.Backend.API.Controllers
             {
                 return Unauthorized();
             }
+            
 
+            var stopwatch = Stopwatch.StartNew();
+
+            // code you want to time
             var response = await _conversationService.RunResponsesConversationAsync(account.Id, request.Message);
+
+            stopwatch.Stop();
+            _logger.LogInformation("SomeAsyncOperation took {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
+
             response.LoggedMeal = response.ToolCalls.Any(t =>
                 string.Equals(t.Function?.Name, AssistantToolTypes.LogMealTool, StringComparison.OrdinalIgnoreCase));
 

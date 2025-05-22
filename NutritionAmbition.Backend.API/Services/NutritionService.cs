@@ -108,16 +108,23 @@ namespace NutritionAmbition.Backend.API.Services
                 var allFoodItems = new List<FoodItem>();
                 var missingItems = new List<string>();
 
-                foreach (var item in parsedFoodsResponse.Foods)
+                var resolutionTasks = parsedFoodsResponse.Foods.Select(async item =>
                 {
                     var (foodItems, success) = await TryResolveFoodItemAsync(item, item.IsBranded);
-                    if (success)
+                    return (item.Name, foodItems, success);
+                }).ToList();
+
+                var resolvedResults = await Task.WhenAll(resolutionTasks);
+
+                foreach (var result in resolvedResults)
+                {
+                    if (result.success)
                     {
-                        allFoodItems.AddRange(foodItems);
+                        allFoodItems.AddRange(result.foodItems);
                     }
                     else
                     {
-                        missingItems.Add(item.Name);
+                        missingItems.Add(result.Name);
                     }
                 }
 
