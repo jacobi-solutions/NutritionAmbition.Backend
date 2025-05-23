@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using NutritionAmbition.Backend.API.Settings;
+using NutritionAmbition.Backend.API.Constants;
 
 namespace NutritionAmbition.Backend.API.Repositories
 {
@@ -126,7 +127,8 @@ namespace NutritionAmbition.Backend.API.Repositories
                     Builders<ChatMessage>.Filter.Eq(m => m.AccountId, accountId),
                     Builders<ChatMessage>.Filter.Gte(m => m.LoggedDateUtc, startOfDay),
                     Builders<ChatMessage>.Filter.Lt(m => m.LoggedDateUtc, endOfDay),
-                    Builders<ChatMessage>.Filter.Ne(m => m.Role, MessageRoleTypes.Tool)
+                    Builders<ChatMessage>.Filter.Ne(m => m.Role, MessageRoleTypes.Tool),
+                    Builders<ChatMessage>.Filter.Ne(m => m.Role, MessageRoleTypes.System)
                 );
 
                 var messages = await _collection.Find(filter)

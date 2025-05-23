@@ -151,5 +151,42 @@ namespace NutritionAmbition.Backend.API.Controllers
 
             return Ok(response);
         }
+
+        [HttpPost("learn-more-about")]
+        [FlexibleAuthorize]
+        public async Task<ActionResult<BotMessageResponse>> LearnMoreAbout([FromBody] LearnMoreAboutRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            if (request == null || string.IsNullOrWhiteSpace(request.Topic))
+            {
+                var errorResponse = new BotMessageResponse();
+                errorResponse.AddError("Topic is required.");
+                return BadRequest(errorResponse);
+            }
+
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+            if (account == null)
+            {
+                return Unauthorized();
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            
+            var response = await _conversationService.RunLearnMoreAboutAsync(account.Id, request);
+            
+            stopwatch.Stop();
+            _logger.LogWarning("RunLearnMoreAboutAsync took {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
+
+            if (!response.IsSuccess)
+            {
+                return BadRequest(response);
+            }
+
+            return Ok(response);
+        }
     }
 } 

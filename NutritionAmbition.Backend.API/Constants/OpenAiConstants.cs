@@ -37,6 +37,7 @@ namespace NutritionAmbition.Backend.API.Constants
         public const string AssistantRoleLiteral = "assistant";
         public const string UserRoleLiteral = "user";
         public const string SystemRoleLiteral = "system";
+        public const string ContextNoteLiteral = "context";
         
         #endregion
 

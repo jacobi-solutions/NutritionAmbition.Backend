@@ -27,7 +27,7 @@ When collecting height and weight, always use imperial units. Ask for height in 
         /// System prompt template for focused nutrition topics
         /// </summary>
         public const string FocusInChatTemplate = @"You are a helpful nutrition assistant. The user wants to discuss {0} in the context of their own data and goals. Engage with insights, suggestions, or questions to help them interpret their intake or take action.";
-    public const string LearnMoreAboutTemplate = @"You are a helpful nutrition assistant. The user is interested in learning more about: {0}. Engage in a helpful way with insights or questions to guide them further.";
+        public const string LearnMoreAboutTemplate = @"You are a helpful nutrition assistant. The user is interested in learning more about: {0}. Engage in a helpful way with insights or questions to guide them further.";
         public const string BrandedFoodReranker = @"
 You are a nutrition assistant scoring branded food matches. You will be given a user query (e.g. ""100g of Silk organic unsweetened soy milk"") and a list of branded food items, each with an ID and name.
 Score how well each branded food matches the user's intent.

@@ -21,6 +21,7 @@ namespace NutritionAmbition.Backend.API.Services
         Task<ClearChatMessagesResponse> ClearChatMessagesAsync(string accountId, ClearChatMessagesRequest request);
         Task<BotMessageResponse> RunResponsesConversationAsync(string accountId, string message);
         Task<BotMessageResponse> RunFocusInChatAsync(string accountId, FocusInChatRequest request);
+        Task<BotMessageResponse> RunLearnMoreAboutAsync(string accountId, LearnMoreAboutRequest request);
     }
 
     public class ConversationService : IConversationService
@@ -85,6 +86,7 @@ namespace NutritionAmbition.Backend.API.Services
                 MessageRoleTypes messageRole = request.Role switch 
                 { 
                     OpenAiConstants.AssistantRoleLiteral => MessageRoleTypes.Assistant, 
+                    OpenAiConstants.ContextNoteLiteral => MessageRoleTypes.ContextNote, 
                     OpenAiConstants.ToolRole => MessageRoleTypes.Tool, 
                     OpenAiConstants.SystemRoleLiteral => MessageRoleTypes.System, 
                     _ => MessageRoleTypes.User 
@@ -467,6 +469,16 @@ namespace NutritionAmbition.Backend.API.Services
 
                 // Create a user message based on the focus text
                 string userMessage = $"I'd like to learn more about {request.FocusText}";
+                string contextNote = $"Focusing on: {request.FocusText}";
+
+                await LogMessageAsync(
+                    accountId,
+                    new LogChatMessageRequest
+                    {
+                        Content = contextNote,
+                        Role = OpenAiConstants.ContextNoteLiteral
+                    }
+                );
 
                 // Build the input messages
                 var inputMessages = new List<object>
@@ -528,6 +540,120 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogError(ex, "Error running focus-in-chat for account {AccountId}: {ErrorMessage}", 
                     accountId, ex.Message);
                 response.AddError("Failed to run focus-in-chat conversation.");
+            }
+
+            return response;
+        }
+
+        public async Task<BotMessageResponse> RunLearnMoreAboutAsync(string accountId, LearnMoreAboutRequest request)
+        {
+            var response = new BotMessageResponse();
+
+            try
+            {
+                _logger.LogInformation("Running learn-more-about for account {AccountId} with topic: {Topic}", 
+                    accountId, request.Topic);
+
+                if (string.IsNullOrEmpty(accountId))
+                {
+                    _logger.LogWarning("Cannot run learn-more-about: Account ID is null or empty");
+                    response.AddError("Account ID is required.");
+                    return response;
+                }
+
+                if (string.IsNullOrEmpty(request.Topic))
+                {
+                    _logger.LogWarning("Cannot run learn-more-about: Topic is empty for account {AccountId}", accountId);
+                    response.AddError("Topic is required.");
+                    return response;
+                }
+
+                // Create the specialized system prompt using the template from SystemPrompts
+                string systemPrompt = string.Format(SystemPrompts.LearnMoreAboutTemplate, request.Topic);
+
+                // Log the system message first
+                await LogMessageAsync(
+                    accountId,
+                    new LogChatMessageRequest
+                    {
+                        Content = systemPrompt,
+                        Role = OpenAiConstants.SystemRoleLiteral
+                    }
+                );
+
+                // Create a user message based on the topic
+                string userMessage = $"I'd like to learn more about {request.Topic}";
+                string contextNote = $"Learning more about: {request.Topic}";
+
+                await LogMessageAsync(
+                    accountId,
+                    new LogChatMessageRequest
+                    {
+                        Content = contextNote,
+                        Role = OpenAiConstants.ContextNoteLiteral
+                    }
+                );
+
+                // Build the input messages
+                var inputMessages = new List<object>
+                {
+                    new { role = OpenAiConstants.SystemRoleLiteral, content = systemPrompt },
+                    new { role = OpenAiConstants.UserRoleLiteral, content = userMessage }
+                };
+
+                // Run the conversation with the OpenAI Responses API
+                response = await _openAiResponsesService.RunConversationRawAsync(
+                    inputMessages, 
+                    _toolDefinitionRegistry.GetAll().ToList()
+                );
+
+                if (!response.IsSuccess)
+                {
+                    _logger.LogWarning("OpenAI Responses API returned error for learn-more-about for account {AccountId}: {ErrorMessage}", 
+                        accountId, response.Errors.FirstOrDefault());
+                    return response;
+                }
+
+                // Log the assistant's message if it exists
+                if (!string.IsNullOrEmpty(response.Message))
+                {
+                    _logger.LogInformation("Logging assistant message for learn-more-about for account {AccountId}", accountId);
+
+                    var assistantLogResponse = await LogMessageAsync(
+                        accountId,
+                        new LogChatMessageRequest
+                        {
+                            Content = response.Message,
+                            Role = OpenAiConstants.AssistantRoleLiteral
+                        },
+                        response.ResponseId
+                    );
+
+                    if (!assistantLogResponse.IsSuccess)
+                    {
+                        _logger.LogWarning("Failed to log assistant message for learn-more-about for account {AccountId}: {ErrorMessage}", 
+                            accountId, assistantLogResponse.Errors.FirstOrDefault());
+                        response.AddError("Failed to log assistant message.");
+                        return response;
+                    }
+
+                    _logger.LogInformation("Successfully logged assistant message for learn-more-about with ResponseId: {ResponseId}", 
+                        response.ResponseId);
+                }
+                else
+                {
+                    _logger.LogWarning("No message to log for learn-more-about for account {AccountId}", accountId);
+                    response.AddError("No valid response content to log.");
+                    return response;
+                }
+
+                response.IsSuccess = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error running learn-more-about for account {AccountId}: {ErrorMessage}", 
+                    accountId, ex.Message);
+                response.AddError("Failed to run learn-more-about conversation.");
             }
 
             return response;

@@ -1,4 +1,5 @@
 using System;
+using NutritionAmbition.Backend.API.Constants;
 
 namespace NutritionAmbition.Backend.API.Models
 {
