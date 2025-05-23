@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
+using NutritionAmbition.Backend.API.Helpers;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Repositories;
 
@@ -20,27 +21,6 @@ namespace NutritionAmbition.Backend.API.Services
         private readonly INutritionCalculationService _nutritionCalculationService;
         private readonly ILogger<DetailedSummaryService> _logger;
 
-        private static readonly Dictionary<string, string> DefaultUnits = new Dictionary<string, string>
-        {
-            { "Protein", "g" },
-            { "Carbohydrates", "g" },
-            { "Fat", "g" },
-            { "Fiber", "g" },
-            { "Sugar", "g" },
-            { "SaturatedFat", "g" },
-            { "UnsaturatedFat", "g" },
-            { "TransFat", "g" },
-            { "Sodium", "mg" },
-            { "Potassium", "mg" },
-            { "Calcium", "mg" },
-            { "Iron", "mg" },
-            { "Zinc", "mg" },
-            { "VitaminA", "IU" },
-            { "VitaminC", "mg" },
-            { "VitaminD", "IU" },
-            { "VitaminE", "mg" },
-            { "Cholesterol", "mg" }
-        };
 
         public DetailedSummaryService(
             FoodEntryRepository foodEntryRepository,
@@ -385,20 +365,7 @@ namespace NutritionAmbition.Backend.API.Services
 
         private string GetNutrientUnit(string nutrientName)
         {
-            // Standardize nutrient name by removing spaces and lowercasing
-            string standardizedName = nutrientName.Replace(" ", "");
-            
-            // Try to find the unit in the default units dictionary
-            foreach (var pair in DefaultUnits)
-            {
-                if (string.Equals(standardizedName, pair.Key, StringComparison.OrdinalIgnoreCase))
-                {
-                    return pair.Value;
-                }
-            }
-            
-            // Default unit for unknown nutrients
-            return "g";
+            return NutritionixNutrientMapper.GetMicroNutrientUnit(nutrientName) ?? "g";
         }
     }
 } 

@@ -139,7 +139,16 @@ namespace NutritionAmbition.Backend.API.Helpers
                 : null;
         }
 
-       
+        public static string? GetMicroNutrientUnit(string name)
+        {
+            foreach (var entry in MicroNutrientMap.Values)
+            {
+                if (string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return entry.Unit;
+            }
+
+            return null;
+        }
 
 
         /// <summary>
