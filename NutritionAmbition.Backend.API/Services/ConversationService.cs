@@ -208,6 +208,34 @@ namespace NutritionAmbition.Backend.API.Services
 
                 string? previousResponseId = lastAssistantMessage?.ResponseId;
 
+                // Check if we're in a goal-setting context and override the system prompt
+                if (userMessage?.ToLowerInvariant().Contains("goal") == true || 
+                    (systemPrompt.Contains("wants to discuss") && systemPrompt.Contains("goals")))
+                {
+                    _logger.LogInformation("Detected goal-setting intent — switching to GoalSettingTemplate for account {AccountId}", accountId);
+                    systemPrompt = SystemPrompts.GoalSettingTemplate;
+                    
+                    // Update the system message in inputMessages if it exists
+                    for (int i = 0; i < inputMessages.Count; i++)
+                    {
+                        var message = inputMessages[i];
+                        if (message is IDictionary<string, object> dict && 
+                            dict.ContainsKey("role") && 
+                            dict["role"]?.ToString() == "system")
+                        {
+                            dict["content"] = systemPrompt;
+                            break;
+                        }
+                    }
+                    
+                    // Add a context note
+                    await LogMessageAsync(accountId, new LogChatMessageRequest
+                    {
+                        Content = "Entering Goal Setting Mode",
+                        Role = OpenAiConstants.ContextNoteLiteral
+                    });
+                }
+
                 // Run the conversation with the OpenAI Responses API
                 response = await _openAiResponsesService.RunConversationRawAsync(
                     inputMessages, 
