@@ -111,7 +111,7 @@ namespace NutritionAmbition.Backend.API.Helpers
             if (UnitsMatch(userUnit, servingUnit, apiServingKind))
                 return userQty / servingQty;
 
-            // 2️⃣— try inner “(8 fl oz)” style match
+            // 2️⃣— try inner "(8 fl oz)" style match
             var parenStart = servingUnit.IndexOf('(');
             var parenEnd   = servingUnit.IndexOf(')');
             if (parenStart >= 0 && parenEnd > parenStart)
@@ -129,7 +129,7 @@ namespace NutritionAmbition.Backend.API.Helpers
                     }
                 }
             }
-            // 2½. if user unit is blank AND we’re in a count context, rely on qty ratio
+            // 2½. if user unit is blank AND we're in a count context, rely on qty ratio
             if (string.IsNullOrWhiteSpace(userUnit) && apiServingKind == UnitKind.Count)
                 return userQty / servingQty;
 
@@ -148,11 +148,11 @@ namespace NutritionAmbition.Backend.API.Helpers
 
         /// <summary>
         /// Canonicalise a unit string so that
-        ///   • synonyms collapse to one token (“tablespoons” → “tbsp”)  
-        ///   • spacing / punctuation are stripped (“fl oz” → “floz”, “cup (8 fl oz)” → “cup”)  
-        ///   • plural “s” is removed after synonym-mapping so “servings” → “serving”.
+        ///   • synonyms collapse to one token ("tablespoons" → "tbsp")  
+        ///   • spacing / punctuation are stripped ("fl oz" → "floz", "cup (8 fl oz)" → "cup")  
+        ///   • plural "s" is removed after synonym-mapping so "servings" → "serving".
         /// The <paramref name="kind"/> hint is only needed for the
-        /// “oz”-vs-“fl oz” ambiguity.
+        /// "oz"-vs-"fl oz" ambiguity.
         /// </summary>
         private static string NormalizeUnit(string? raw, UnitKind? kind = null)
         {
@@ -236,6 +236,7 @@ namespace NutritionAmbition.Backend.API.Helpers
             // Create a FoodItem with base values from the API
             var foodItem = new FoodItem
             {
+                Id = Guid.NewGuid().ToString(), // Ensure unique ID for each food item
                 Name = food.FoodName ?? string.Empty,
                 BrandName = food.BrandName,
                 Quantity = userQuantity, // Store the user's requested OriginalScaledQuantity

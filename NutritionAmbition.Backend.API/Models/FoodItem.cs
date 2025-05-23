@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NutritionAmbition.Backend.API.Constants;
+using System;
 
 namespace NutritionAmbition.Backend.API.Models
 {
@@ -8,6 +9,7 @@ namespace NutritionAmbition.Backend.API.Models
     /// </summary>
     public class FoodItem
     {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
         public string Name { get; set; } // Required
         public string? BrandName { get; set; }
         

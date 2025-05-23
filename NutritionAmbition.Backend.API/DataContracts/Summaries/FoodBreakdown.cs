@@ -4,6 +4,7 @@ namespace NutritionAmbition.Backend.API.DataContracts
 {
     public class FoodBreakdown
     {
+        public List<string> FoodItemIds { get; set; }
         public string Name { get; set; }
         public string BrandName { get; set; }
         public double TotalAmount { get; set; } // grams

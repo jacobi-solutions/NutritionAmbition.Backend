@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -236,6 +237,7 @@ namespace NutritionAmbition.Backend.API.Services
                     // Map the NutritionixFood to a FoodItem without scaling
                     var foodItem = new FoodItem
                     {
+                        Id = Guid.NewGuid().ToString(),
                         Name = food.FoodName ?? string.Empty,
                         BrandName = food.BrandName,
                         Quantity = food.ServingQty,
@@ -340,11 +342,11 @@ namespace NutritionAmbition.Backend.API.Services
         //     // 2 egg                 →  "2 egg"
         //     if (item.Quantity > 0 && !string.IsNullOrWhiteSpace(item.Unit))
         //     {
-        //         // avoid “egg egg”, “avocado avocado” …
+        //         // avoid "egg egg", "avocado avocado" …
         //         if (!item.Unit.Equals(item.Name, StringComparison.OrdinalIgnoreCase))
         //             parts.Add($"{item.Quantity} {item.Unit}");
         //         else
-        //             parts.Add($"{item.Quantity} {item.Unit}".Trim());  // still “2 egg”
+        //             parts.Add($"{item.Quantity} {item.Unit}".Trim());  // still "2 egg"
         //     }
 
         //     if (!string.IsNullOrWhiteSpace(item.Description))

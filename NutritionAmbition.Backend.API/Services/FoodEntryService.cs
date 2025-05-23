@@ -14,7 +14,7 @@ namespace NutritionAmbition.Backend.API.Services
         Task<CreateFoodEntryResponse> AddFoodEntryAsync(string accountId, CreateFoodEntryRequest request);
         Task<GetFoodEntriesResponse> GetFoodEntriesAsync(string accountId, GetFoodEntriesRequest request);
         Task<UpdateFoodEntryResponse> UpdateFoodEntryAsync(string accountId, UpdateFoodEntryRequest request);
-        Task<DeleteFoodEntryResponse> DeleteFoodEntryAsync(string accountId, DeleteFoodEntryRequest request);
+        Task<DeleteFoodEntryResponse> RemoveFoodItemsFromEntryAsync(string accountId, DeleteFoodEntryRequest request);
     }
 
     public class FoodEntryService : IFoodEntryService
@@ -127,28 +127,68 @@ namespace NutritionAmbition.Backend.API.Services
             return response;
         }
 
-        public async Task<DeleteFoodEntryResponse> DeleteFoodEntryAsync(string accountId, DeleteFoodEntryRequest request)
+        public async Task<DeleteFoodEntryResponse> RemoveFoodItemsFromEntryAsync(string accountId, DeleteFoodEntryRequest request)
         {
-            // ... existing implementation (no change needed for GroupedItems) ...
             var response = new DeleteFoodEntryResponse();
+
             try
             {
-                var entry = await _foodEntryRepository.GetByIdAsync(request.FoodEntryId);
-                if (entry == null || entry.AccountId != accountId) // Verify ownership
+                var entries = await _foodEntryRepository.GetByAccountIdAsync(accountId);
+                var updatedEntries = new List<FoodEntry>();
+                var entriesToDelete = new List<string>();
+
+                foreach (var entry in entries)
                 {
-                    response.AddError("Food entry not found or access denied.");
-                    return response;
+                    bool entryModified = false;
+
+                    foreach (var group in entry.GroupedItems.ToList())
+                    {
+                        var originalCount = group.Items.Count;
+                        group.Items = group.Items
+                            .Where(item => !request.FoodItemIds.Contains(item.Id.ToString()))
+                            .ToList();
+
+                        if (group.Items.Count < originalCount)
+                            entryModified = true;
+                    }
+
+                    // Remove empty groups
+                    entry.GroupedItems = entry.GroupedItems.Where(g => g.Items.Any()).ToList();
+
+                    if (entryModified)
+                    {
+                        if (!entry.GroupedItems.Any())
+                        {
+                            entriesToDelete.Add(entry.Id);
+                        }
+                        else
+                        {
+                            updatedEntries.Add(entry);
+                        }
+                    }
                 }
 
-                await _foodEntryRepository.DeleteAsync(request.FoodEntryId);
+                // Apply changes to DB
+                foreach (var update in updatedEntries)
+                {
+                    await _foodEntryRepository.UpdateAsync(update);
+                    _logger.LogInformation("Updated FoodEntry {FoodEntryId} after removing items", update.Id);
+                }
+
+                foreach (var deleteId in entriesToDelete)
+                {
+                    await _foodEntryRepository.DeleteAsync(deleteId);
+                    _logger.LogInformation("Deleted FoodEntry {FoodEntryId} because all items were removed", deleteId);
+                }
+
                 response.IsSuccess = true;
-                _logger.LogInformation("Successfully deleted food entry {FoodEntryId} for account {AccountId}", request.FoodEntryId, accountId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deleting food entry {FoodEntryId} for account {AccountId}", request.FoodEntryId, accountId);
-                response.AddError($"Failed to delete food entry: {ex.Message}");
+                _logger.LogError(ex, "Error deleting food item(s) from entry for account {AccountId}", accountId);
+                response.AddError("Failed to delete one or more food items.");
             }
+
             return response;
         }
     }

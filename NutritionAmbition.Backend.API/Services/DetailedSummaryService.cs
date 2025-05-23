@@ -306,6 +306,7 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 var breakdown = new FoodBreakdown
                 {
+                    FoodItemIds = group.Select(f => f.Id).ToList(),
                     Name = group.Key,
                     BrandName = firstItem.BrandName,
                     // Use sum of OriginalScaledQuantity for total display amount
