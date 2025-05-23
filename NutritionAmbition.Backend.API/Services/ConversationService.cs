@@ -16,12 +16,11 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface IConversationService
     {
-        Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal);
-        Task<BotMessageResponse> GetAnonymousWarningAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal);
         Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request, string? responseId = null);
         Task<GetChatMessagesResponse> GetChatMessagesAsync(string accountId, GetChatMessagesRequest request);
         Task<ClearChatMessagesResponse> ClearChatMessagesAsync(string accountId, ClearChatMessagesRequest request);
         Task<BotMessageResponse> RunResponsesConversationAsync(string accountId, string message);
+        Task<BotMessageResponse> RunFocusInChatAsync(string accountId, FocusInChatRequest request);
     }
 
     public class ConversationService : IConversationService
@@ -58,95 +57,8 @@ namespace NutritionAmbition.Backend.API.Services
             _systemPromptResolver = systemPromptResolver;
         }
 
-        public async Task<BotMessageResponse> GetPostLogHintAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal)
-        {
-            var response = new BotMessageResponse();
+        
 
-            try
-            {
-                _logger.LogInformation("Getting post-log hint for account {AccountId}", accountId);
-                
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot get post-log hint: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
-
-                var systemPrompt = SystemPrompts.DefaultNutritionAssistant;
-                var userPrompt = "The user has just logged a meal. Provide a helpful hint or suggestion about nutrition or meal tracking.";
-
-                try
-                {
-                    // Use the OpenAI Responses API for generating the hint
-                    response = await _openAiResponsesService.RunChatAsync(accountId, userPrompt, systemPrompt);
-                    _logger.LogInformation("Successfully generated post-log hint for account {AccountId}", accountId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error generating OpenAI message for post-log hint for account {AccountId}: {ErrorMessage}", 
-                        accountId, ex.Message);
-                    
-                    // Provide a fallback message rather than failing
-                    _logger.LogInformation("Using fallback post-log hint for account {AccountId}", accountId);
-                    response.Message = "Great job logging your meal! Keep up the good work!";
-                    response.IsSuccess = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating post-log hint for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
-                response.AddError("Failed to generate post-log hint.");
-            }
-
-            return response;
-        }
-
-        public async Task<BotMessageResponse> GetAnonymousWarningAsync(string accountId, DateTime? lastLoggedDate, bool hasLoggedFirstMeal)
-        {
-            var response = new BotMessageResponse();
-
-            try
-            {
-                _logger.LogInformation("Getting anonymous warning for account {AccountId}", accountId);
-                
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot get anonymous warning: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
-
-                var systemPrompt = SystemPrompts.DefaultNutritionAssistant;
-                var userPrompt = "The user is using the app anonymously. Encourage them to create an account to save their progress.";
-
-                try
-                {
-                    // Use the OpenAI Responses API for generating the warning
-                    response = await _openAiResponsesService.RunChatAsync(accountId, userPrompt, systemPrompt);
-                    _logger.LogInformation("Successfully generated anonymous warning for account {AccountId}", accountId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error generating OpenAI message for anonymous warning for account {AccountId}: {ErrorMessage}", 
-                        accountId, ex.Message);
-                    
-                    // Provide a fallback message rather than failing
-                    _logger.LogInformation("Using fallback anonymous warning for account {AccountId}", accountId);
-                    response.Message = "Consider creating an account to save your progress and access more features!";
-                    response.IsSuccess = true;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating anonymous warning for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
-                response.AddError("Failed to generate anonymous warning message.");
-            }
-
-            return response;
-        }
 
         public async Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request, string? responseId = null)
         {
@@ -322,6 +234,26 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
+                // Log the user's message first
+                var userMessageLogResponse = await LogMessageAsync(
+                    accountId,
+                    new LogChatMessageRequest
+                    {
+                        Content = message,
+                        Role = OpenAiConstants.UserRoleLiteral  // This is "user"
+                    }
+                );
+
+                if (!userMessageLogResponse.IsSuccess)
+                {
+                    _logger.LogWarning("Failed to log user message for account {AccountId}: {ErrorMessage}", 
+                        accountId, userMessageLogResponse.Errors.FirstOrDefault());
+                    response.AddError("Failed to log user message.");
+                    return response;
+                }
+
+                _logger.LogInformation("Successfully logged user message for account {AccountId}", accountId);
+
                 // Get today's messages to find the last assistant message
                 var today = DateTime.UtcNow.Date;
                 // todo get last message from repo only
@@ -492,6 +424,110 @@ namespace NutritionAmbition.Backend.API.Services
                 _logger.LogError(ex, "Error running responses conversation for account {AccountId}: {ErrorMessage}", 
                     accountId, ex.Message);
                 response.AddError("Failed to run conversation.");
+            }
+
+            return response;
+        }
+
+        public async Task<BotMessageResponse> RunFocusInChatAsync(string accountId, FocusInChatRequest request)
+        {
+            var response = new BotMessageResponse();
+
+            try
+            {
+                _logger.LogInformation("Running focus-in-chat for account {AccountId} with focus: {FocusText}", 
+                    accountId, request.FocusText);
+
+                if (string.IsNullOrEmpty(accountId))
+                {
+                    _logger.LogWarning("Cannot run focus-in-chat: Account ID is null or empty");
+                    response.AddError("Account ID is required.");
+                    return response;
+                }
+
+                if (string.IsNullOrEmpty(request.FocusText))
+                {
+                    _logger.LogWarning("Cannot run focus-in-chat: Focus text is empty for account {AccountId}", accountId);
+                    response.AddError("Focus text is required.");
+                    return response;
+                }
+
+                // Create the specialized system prompt using the template from SystemPrompts
+                string systemPrompt = string.Format(SystemPrompts.FocusInChatTemplate, request.FocusText);
+
+                // Log the system message first
+                await LogMessageAsync(
+                    accountId,
+                    new LogChatMessageRequest
+                    {
+                        Content = systemPrompt,
+                        Role = OpenAiConstants.SystemRoleLiteral
+                    }
+                );
+
+                // Create a user message based on the focus text
+                string userMessage = $"I'd like to learn more about {request.FocusText}";
+
+                // Build the input messages
+                var inputMessages = new List<object>
+                {
+                    new { role = OpenAiConstants.SystemRoleLiteral, content = systemPrompt },
+                    new { role = OpenAiConstants.UserRoleLiteral, content = userMessage }
+                };
+
+                // Run the conversation with the OpenAI Responses API
+                response = await _openAiResponsesService.RunConversationRawAsync(
+                    inputMessages, 
+                    _toolDefinitionRegistry.GetAll().ToList()
+                );
+
+                if (!response.IsSuccess)
+                {
+                    _logger.LogWarning("OpenAI Responses API returned error for focus-in-chat for account {AccountId}: {ErrorMessage}", 
+                        accountId, response.Errors.FirstOrDefault());
+                    return response;
+                }
+
+                // Log the assistant's message if it exists
+                if (!string.IsNullOrEmpty(response.Message))
+                {
+                    _logger.LogInformation("Logging assistant message for focus-in-chat for account {AccountId}", accountId);
+
+                    var assistantLogResponse = await LogMessageAsync(
+                        accountId,
+                        new LogChatMessageRequest
+                        {
+                            Content = response.Message,
+                            Role = OpenAiConstants.AssistantRoleLiteral
+                        },
+                        response.ResponseId
+                    );
+
+                    if (!assistantLogResponse.IsSuccess)
+                    {
+                        _logger.LogWarning("Failed to log assistant message for focus-in-chat for account {AccountId}: {ErrorMessage}", 
+                            accountId, assistantLogResponse.Errors.FirstOrDefault());
+                        response.AddError("Failed to log assistant message.");
+                        return response;
+                    }
+
+                    _logger.LogInformation("Successfully logged assistant message for focus-in-chat with ResponseId: {ResponseId}", 
+                        response.ResponseId);
+                }
+                else
+                {
+                    _logger.LogWarning("No message to log for focus-in-chat for account {AccountId}", accountId);
+                    response.AddError("No valid response content to log.");
+                    return response;
+                }
+
+                response.IsSuccess = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error running focus-in-chat for account {AccountId}: {ErrorMessage}", 
+                    accountId, ex.Message);
+                response.AddError("Failed to run focus-in-chat conversation.");
             }
 
             return response;

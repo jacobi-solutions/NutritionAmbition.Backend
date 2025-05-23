@@ -33,118 +33,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             _logger = logger;
         }
 
-        [HttpPost("GetInitialMessage")]
-        public async Task<ActionResult<BotMessageResponse>> GetInitialMessage([FromBody] GetInitialMessageRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized("User account not found");
-            }
-
-            // Check if timezone offset is provided
-            if (request.TimezoneOffsetMinutes.HasValue)
-            {
-                _logger.LogInformation("Using client-provided timezone offset: {TimezoneOffsetMinutes} minutes", request.TimezoneOffsetMinutes.Value);
-            }
-
-            // Use the Responses API with daily check-in trigger
-            var response = await _conversationService.RunResponsesConversationAsync(
-                account.Id, 
-                ConversationConstants.DAILY_CHECKIN);
-
-            if (!response.IsSuccess)
-            {
-                return BadRequest(response);
-            }
-
-            return Ok(response);
-        }
-
-        [HttpPost("GetPostLogHint")]
-        public async Task<ActionResult<BotMessageResponse>> GetPostLogHint([FromBody] PostLogHintRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized("User account not found");
-            }
-
-            var response = await _conversationService.GetPostLogHintAsync(
-                account.Id,
-                request.LastLoggedDate,
-                request.HasLoggedFirstMeal);
-
-            if (!response.IsSuccess)
-            {
-                return BadRequest(response);
-            }
-
-            return Ok(response);
-        }
-
-        [HttpPost("GetAnonymousWarning")]
-        public async Task<ActionResult<BotMessageResponse>> GetAnonymousWarning([FromBody] AnonymousWarningRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized("User account not found");
-            }
-
-            var response = await _conversationService.GetAnonymousWarningAsync(
-                account.Id,
-                request.LastLoggedDate,
-                request.HasLoggedFirstMeal);
-
-            if (!response.IsSuccess)
-            {
-                return BadRequest(response);
-            }
-
-            return Ok(response);
-        }
-
-        [HttpPost("LogChatMessage")]
-        public async Task<ActionResult<LogChatMessageResponse>> LogChatMessage([FromBody] LogChatMessageRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized("User account not found");
-            }
-
-
-            var response = await _conversationService.LogMessageAsync(account.Id, request);
-            
-            if (!response.IsSuccess)
-            {
-                return BadRequest(response);
-            }
-
-            response.AnonymousAccountId = account.Id;
-            return Ok(response);
-        }
+        
 
         [HttpPost("GetChatMessages")]
         public async Task<ActionResult<GetChatMessagesResponse>> GetChatMessages([FromBody] GetChatMessagesRequest request)
@@ -222,6 +111,43 @@ namespace NutritionAmbition.Backend.API.Controllers
 
             response.LoggedMeal = response.ToolCalls.Any(t =>
                 string.Equals(t.Function?.Name, AssistantToolTypes.LogMealTool, StringComparison.OrdinalIgnoreCase));
+
+            return Ok(response);
+        }
+
+        [HttpPost("focus-in-chat")]
+        [FlexibleAuthorize]
+        public async Task<ActionResult<BotMessageResponse>> FocusInChat([FromBody] FocusInChatRequest request)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            if (request == null || string.IsNullOrWhiteSpace(request.FocusText))
+            {
+                var errorResponse = new BotMessageResponse();
+                errorResponse.AddError("Focus text is required.");
+                return BadRequest(errorResponse);
+            }
+
+            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
+            if (account == null)
+            {
+                return Unauthorized();
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            
+            var response = await _conversationService.RunFocusInChatAsync(account.Id, request);
+            
+            stopwatch.Stop();
+            _logger.LogWarning("RunFocusInChatAsync took {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
+
+            if (!response.IsSuccess)
+            {
+                return BadRequest(response);
+            }
 
             return Ok(response);
         }
