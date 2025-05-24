@@ -17,15 +17,18 @@ namespace NutritionAmbition.Backend.API.Services
     public class ProfileService : IProfileService
     {
         private readonly DailyGoalRepository _dailyGoalRepository;
+        private readonly DefaultGoalProfileRepository _defaultGoalProfileRepository;
         private readonly IAccountsService _accountsService;
         private readonly ILogger<ProfileService> _logger;
 
         public ProfileService(
             DailyGoalRepository dailyGoalRepository,
+            DefaultGoalProfileRepository defaultGoalProfileRepository,
             IAccountsService accountsService,
             ILogger<ProfileService> logger)
         {
             _dailyGoalRepository = dailyGoalRepository;
+            _defaultGoalProfileRepository = defaultGoalProfileRepository;
             _accountsService = accountsService;
             _logger = logger;
         }
@@ -109,22 +112,28 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 _logger.LogInformation("Retrieving profile and goals for account {AccountId}", request.AccountId);
 
-                // Get the latest DailyGoal for the account
-                var latestGoal = await _dailyGoalRepository.GetLatestByAccountIdAsync(request.AccountId);
+                // Check if a default goal profile exists for the account
+                var defaultGoalProfile = await _defaultGoalProfileRepository.GetByAccountIdAsync(request.AccountId);
 
-                // If no goal exists, return a response indicating no goals
-                if (latestGoal == null)
+                // Set HasGoals based on whether a default profile exists
+                if (defaultGoalProfile == null)
                 {
-                    _logger.LogInformation("No daily goals found for account {AccountId}", request.AccountId);
+                    _logger.LogInformation("No default goal profile found for account {AccountId}", request.AccountId);
                     response.HasGoals = false;
                     response.IsSuccess = true;
                     return response;
                 }
 
-                // Extract profile data from daily goal
-                // Profile data is not explicitly stored, but we can infer from what we have in goals
-                response.BaseCalories = latestGoal.BaseCalories;
+                _logger.LogInformation("Default goal profile found for account {AccountId}", request.AccountId);
                 response.HasGoals = true;
+
+                // Get the latest DailyGoal for the account to extract base calories
+                var latestGoal = await _dailyGoalRepository.GetLatestByAccountIdAsync(request.AccountId);
+                if (latestGoal != null)
+                {
+                    response.BaseCalories = latestGoal.BaseCalories;
+                }
+
                 response.IsSuccess = true;
 
                 // Get account details - might have some profile data
