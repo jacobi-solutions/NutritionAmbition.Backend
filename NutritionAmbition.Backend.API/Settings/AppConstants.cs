@@ -7,5 +7,6 @@ namespace NutritionAmbition.Backend.API.Settings
     public const string FirebaseSettings = "FirebaseSettings";
     public const string OpenAiSettings = "OpenAiSettings";
     public const string NutritionixSettings = "NutritionixSettings";
+    public const string FatSecretSettings = "FatSecretSettings";
   }
 }

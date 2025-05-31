@@ -52,6 +52,9 @@ builder.Services.AddSingleton(openAiSettings);
 var nutritionixSettings = builder.Configuration.GetSection(AppConstants.NutritionixSettings).Get<NutritionixSettings>();
 builder.Services.AddSingleton(nutritionixSettings);
 
+var fatSecretSettings = builder.Configuration.GetSection(AppConstants.FatSecretSettings).Get<FatSecretSettings>();
+builder.Services.AddSingleton(fatSecretSettings);
+
 // 🟢 Database
 var pack = new ConventionPack
 {
