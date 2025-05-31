@@ -19,46 +19,31 @@ namespace NutritionAmbition.Backend.API.Services
 
     public class NutritionService : INutritionService
     {
-        private readonly INutritionixService _nutritionixService;
+        private readonly IFoodDataApi _foodDataApi;
         private readonly IOpenAiService _openAiService;
         private readonly IOpenAiResponsesService _openAiResponsesService;
         private readonly IFoodEntryService _foodEntryService;
         private readonly ILogger<NutritionService> _logger;
-        private readonly NutritionixClient _nutritionixClient;
         private readonly INutritionCalculationService _nutritionCalculationService;
         private readonly IDailySummaryService _dailySummaryService;
 
         public NutritionService(
-            INutritionixService nutritionixService,
+            IFoodDataApi foodDataApi,
             IOpenAiService openAiService,
             IOpenAiResponsesService openAiResponsesService,
             IFoodEntryService foodEntryService,
             ILogger<NutritionService> logger,
-            NutritionixClient nutritionixClient,
             INutritionCalculationService nutritionCalculationService,
             IDailySummaryService dailySummaryService)
         {
-            _nutritionixService = nutritionixService;
+            _foodDataApi = foodDataApi;
             _openAiService = openAiService;
             _openAiResponsesService = openAiResponsesService;
             _foodEntryService = foodEntryService;
             _logger = logger;
-            _nutritionixClient = nutritionixClient;
             _nutritionCalculationService = nutritionCalculationService;
             _dailySummaryService = dailySummaryService;
         }
-
-        private async Task<NutritionixFood> GetNutritionDataByNixItemIdAsync(string nixItemId)
-        {
-            // Call Nutritionix API to fetch nutrition data by NixItemId
-            var response = await _nutritionixClient.GetNutritionByItemIdAsync(nixItemId);
-            if (response == null)
-            {
-                throw new InvalidOperationException($"Nutritionix returned no data for NixItemId {nixItemId}");
-            }
-            return response;
-        }
-
 
         public async Task<NutritionApiResponse> GetSmartNutritionDataAsync(string accountId, string foodDescription)
         {
@@ -98,20 +83,12 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                // 2. Split the parsed foods into branded and generic items
-                var brandedItems = parsedFoodsResponse.Foods.Where(f => f.IsBranded).ToList();
-                var genericItems = parsedFoodsResponse.Foods.Where(f => !f.IsBranded).ToList();
-
-                _logger.LogInformation("Found {BrandedCount} branded items and {GenericCount} generic items",
-                    brandedItems.Count, genericItems.Count);
-
-
                 var allFoodItems = new List<FoodItem>();
                 var missingItems = new List<string>();
 
                 var resolutionTasks = parsedFoodsResponse.Foods.Select(async item =>
                 {
-                    var (foodItems, success) = await TryResolveFoodItemAsync(item, item.IsBranded);
+                    var (foodItems, success) = await TryResolveFoodItemAsync(item);
                     return (item.Name, foodItems, success);
                 }).ToList();
 
@@ -129,7 +106,7 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                 }
 
-                // 5. Check if we found any nutrition data
+                // Check if we found any nutrition data
                 if (allFoodItems.Any())
                 {
                     _logger.LogInformation("Converting {Count} food items to FoodNutrition objects", allFoodItems.Count);
@@ -162,7 +139,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        private async Task<(List<FoodItem> FoodItems, bool Success)> TryResolveFoodItemAsync(ParsedFoodItem item, bool isBranded)
+        private async Task<(List<FoodItem> FoodItems, bool Success)> TryResolveFoodItemAsync(ParsedFoodItem item)
         {
             var foodItems = new List<FoodItem>();
             try
@@ -170,356 +147,177 @@ namespace NutritionAmbition.Backend.API.Services
                 string searchQuery = BuildSearchQuery(item);
                 _logger.LogInformation("Using search query: {SearchQuery}", searchQuery);
 
-                var searchResults = await _nutritionixService.SearchInstantAsync(searchQuery);
-                var candidates = isBranded ? searchResults.Branded : searchResults.Common;
-
-                if (candidates.Count == 0)
+                var searchResults = await _foodDataApi.SearchFoodsAsync(searchQuery, CancellationToken.None);
+                if (!searchResults.Any())
                 {
-                    _logger.LogWarning("No {Type} options found for: {Name}", isBranded ? "branded" : "generic", item.Name);
+                    _logger.LogWarning("No options found for: {Name}", item.Name);
                     return (foodItems, false);
                 }
 
-                _logger.LogInformation("Found {Count} {Type} options for: {Name}", candidates.Count, isBranded ? "branded" : "generic", item.Name);
+                _logger.LogInformation("Found {Count} options for: {Name}", searchResults.Count, item.Name);
 
-                var selectedNixItemId = await _openAiService.SelectBestFoodAsync(
-                    isBranded ? $"{item.Brand} {item.Name}: {item.Description}" : $"{item.Name}: {item.Description}",
-                    item.Quantity, item.Unit, candidates, isBranded);
+                // Use the first result for now - we can enhance this with better matching later
+                var selectedFood = searchResults.First();
+                var foodDetails = await _foodDataApi.GetFoodDetailsAsync(selectedFood.Id, CancellationToken.None);
 
-                if (!string.IsNullOrWhiteSpace(selectedNixItemId))
+                if (foodDetails != null)
                 {
-                    var selected = candidates.FirstOrDefault(x => x.NixFoodId.Equals(selectedNixItemId));
-                    if (selected != null)
-                    {
-                        var resolvedItems = await ResolveAndScaleNutritionixFoodAsync(selected, item);
-                        return (resolvedItems, true);
-                    }
-
-                    _logger.LogWarning("Failed to resolve selected {Type} food for ID: {Id}", isBranded ? "branded" : "generic", selectedNixItemId);
-                }
-                else if (!isBranded)
-                {
-                    _logger.LogWarning("Fallback: no TagId found, retrying as natural language with query: {Query}", searchQuery);
-                    var fallbackResponse = await _nutritionixService.GetNutritionDataAsync(searchQuery);
-                    if (fallbackResponse?.Foods.Any() == true)
-                    {
-                        var normalizedFoodItems = MapAndNormalizeNutritionixResponseToFoodItem(fallbackResponse);
-                        foreach (var normalizedFoodItem in normalizedFoodItems)
-                        {
-                            ScaleFoodItemFromUserInput(normalizedFoodItem, item.Quantity, item.Unit);
-                        }
-
-                        return (normalizedFoodItems, true);
-                    }
+                    // Scale the food item based on user input
+                    ScaleFoodItemFromUserInput(foodDetails, item.Quantity, item.Unit);
+                    foodItems.Add(foodDetails);
+                    return (foodItems, true);
                 }
 
+                _logger.LogWarning("Failed to get details for food: {Name}", item.Name);
                 return (foodItems, false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing {Type} item: {Name}", isBranded ? "branded" : "generic", item.Name);
+                _logger.LogError(ex, "Error processing item: {Name}", item.Name);
                 return (foodItems, false);
             }
         }
 
-        private List<FoodItem> MapAndNormalizeNutritionixResponseToFoodItem(NutritionixResponse nutritionixResponse)
-        {
-            var mappedFoods = new List<FoodItem>();
-
-            if (nutritionixResponse?.Foods == null)
-            {
-                return mappedFoods;
-            }
-
-            foreach (var food in nutritionixResponse.Foods)
-            {
-                if (food != null)
-                {
-                    // Map the NutritionixFood to a FoodItem without scaling
-                    var foodItem = new FoodItem
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        Name = food.FoodName ?? string.Empty,
-                        BrandName = food.BrandName,
-                        Quantity = food.ServingQty,
-                        Unit = food.ServingUnit ?? string.Empty,
-                        // Assign ApiServingKind using our new helper method
-                        ApiServingKind = UnitKindHelper.InferUnitKindOrDefault(food.ServingUnit),
-                        Micronutrients = new Dictionary<string, double>()
-                    };
-
-                    if (food.ServingWeightGrams.HasValue && food.ServingQty > 0)
-                    {
-                        foodItem.WeightGramsPerUnit = food.ServingWeightGrams.Value / food.ServingQty;
-                    }
-
-                    NutritionixNutrientMapper.MapMacronutrients(food, foodItem);
-                    NutritionixNutrientMapper.MapMicronutrients(food, foodItem);
-
-
-                    // Normalize nutrient values to a per-unit baseline
-                    if (food.ServingQty != 1 && food.ServingQty > 0)
-                    {
-                        double normalizationFactor = 1.0 / food.ServingQty;
-
-                        foodItem.Calories *= normalizationFactor;
-                        foodItem.Protein *= normalizationFactor;
-                        foodItem.Carbohydrates *= normalizationFactor;
-                        foodItem.Fat *= normalizationFactor;
-                        if (foodItem.WeightGramsPerUnit.HasValue)
-                        {
-                            foodItem.WeightGramsPerUnit *= normalizationFactor;
-                        }
-
-                        foreach (var key in foodItem.Micronutrients.Keys.ToList())
-                            {
-                                foodItem.Micronutrients[key] *= normalizationFactor;
-                            }
-
-                        foodItem.Quantity = 1;
-                        foodItem.Unit = food.ServingUnit ?? string.Empty;
-
-                        
-                    }
-                    
-                    mappedFoods.Add(foodItem);
-                }
-            }
-            
-            return mappedFoods;
-        }
-
-        private List<FoodNutrition> ConvertFoodItemsToFoodNutrition(List<FoodItem> foodItems)
-        {
-            var foodNutritions = new List<FoodNutrition>();
-
-            foreach (var item in foodItems)
-            {
-
-                var foodNutrition = new FoodNutrition
-                {
-                    Name = item.Name,
-                    BrandName = item.BrandName,
-                    // Use OriginalScaledQuantity for display to show user the real amount
-                    Quantity = item.Quantity.ToString(),
-                    Unit = item.Unit,
-                    Calories = item.Calories,
-                    Macronutrients = new Macronutrients
-                    {
-                        // Note: Nutrient values are already scaled - do not multiply by Quantity
-                        Protein = new NutrientInfo { Amount = item.Protein, Unit = "g" },
-                        Carbohydrates = new NutrientInfo { Amount = item.Carbohydrates, Unit = "g" },
-                        Fat = new NutrientInfo { Amount = item.Fat, Unit = "g" },
-                    },
-                    Micronutrients = new Dictionary<string, Micronutrient>()
-                };
-
-                // Convert micronutrients
-                foreach (var nutrient in item.Micronutrients)
-                {
-                    var match = NutritionixNutrientMapper.All.FirstOrDefault(kvp => kvp.Value.Name.Equals(nutrient.Key, StringComparison.OrdinalIgnoreCase));
-
-                    string unit = match.Value.Item2 ?? "";
-
-                    // Micronutrient values are already scaled - do not multiply by Quantity
-                    foodNutrition.Micronutrients[nutrient.Key] = new Micronutrient
-                    {
-                        Amount = nutrient.Value,
-                        Unit = unit
-                    };
-                }
-
-                foodNutritions.Add(foodNutrition);
-            }
-
-            return foodNutritions;
-        }
-
-        // private string BuildSearchQuery(ParsedFoodItem item)
-        // {
-        //     var parts = new List<string>();
-
-        //     // 2 tbsp peanut butter  →  "2 tbsp peanut butter"
-        //     // 2 egg                 →  "2 egg"
-        //     if (item.Quantity > 0 && !string.IsNullOrWhiteSpace(item.Unit))
-        //     {
-        //         // avoid "egg egg", "avocado avocado" …
-        //         if (!item.Unit.Equals(item.Name, StringComparison.OrdinalIgnoreCase))
-        //             parts.Add($"{item.Quantity} {item.Unit}");
-        //         else
-        //             parts.Add($"{item.Quantity} {item.Unit}".Trim());  // still "2 egg"
-        //     }
-
-        //     if (!string.IsNullOrWhiteSpace(item.Description))
-        //         parts.Add(item.Description);
-
-        //     if (!string.IsNullOrWhiteSpace(item.Brand))
-        //         parts.Add(item.Brand);
-
-        //     parts.Add(item.Name);     // always include the name once
-
-        //     return string.Join(' ', parts);
-        // }
         private string BuildSearchQuery(ParsedFoodItem item)
         {
-            var queryComponents = new List<string>();
+            var query = new StringBuilder();
 
-            // Add quantity and unit if available
-            if (item.Quantity > 0 && !string.IsNullOrWhiteSpace(item.Unit))
+            if (!string.IsNullOrWhiteSpace(item.Brand))
             {
-                queryComponents.Add($"{item.Quantity} {item.Unit}");
+                query.Append(item.Brand).Append(" ");
             }
+
+            query.Append(item.Name);
 
             if (!string.IsNullOrWhiteSpace(item.Description))
             {
-                queryComponents.Add(item.Description);
+                query.Append(" ").Append(item.Description);
             }
 
-            // Add brand if available
-            if (!string.IsNullOrWhiteSpace(item.Brand))
-            {
-                queryComponents.Add(item.Brand);
-            }
-
-            // Always add the name
-            queryComponents.Add(item.Name);
-
-            // Join everything with spaces
-            return string.Join(" ", queryComponents);
+            return query.ToString().Trim();
         }
 
-        /// <summary>
-        /// Centralized helper method for scaling food items based on user input
-        /// </summary>
-        /// <param name="item">Food item to scale</param>
-        /// <param name="scaleToQuantity">User's requested quantity</param>
-        /// <param name="scaleToUnit">User's requested unit</param>
-        /// <param name="apiServingQty">API-provided serving quantity (from Nutritionix)</param>
-        /// <param name="apiServingUnit">API-provided serving unit (from Nutritionix)</param>
-        /// <param name="apiServingWeightG">API-provided serving weight in grams (from Nutritionix)</param>
         private void ScaleFoodItemFromUserInput(
             FoodItem item,
             double scaleToQuantity,
             string scaleToUnit)
         {
+            if (item == null || scaleToQuantity <= 0)
+                return;
+
             try
             {
-                // Skip scaling if required values are missing
-                if (string.IsNullOrWhiteSpace(item.Unit))
+                // If the units match, just scale the quantity
+                if (string.Equals(item.Unit, scaleToUnit, StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogWarning("Skipping scaling for {FoodName} - missing API serving unit", item.Name);
-
-                    item.Quantity = scaleToQuantity;
-                    item.Unit = scaleToUnit;
-
+                    var scaleFactor = scaleToQuantity / item.Quantity;
+                    ScaleFoodItem(item, scaleFactor);
                     return;
                 }
 
-                // Calculate multiplier using standardized scaling logic
-                var multiplier = UnitScalingHelpers.GetMultiplierFromUserInput(
-                    scaleToQuantity,
-                    scaleToUnit,
-                    item.Quantity,
-                    item.Unit,
-                    item.WeightGramsPerUnit,
-                    item.ApiServingKind);
-
-                if (multiplier.HasValue)
+                // If we have weight information, use it for conversion
+                if (item.WeightGramsPerUnit.HasValue && item.WeightGramsPerUnit.Value > 0)
                 {
-                    // Scale the nutrition values using our centralized method
-                    UnitScalingHelpers.ScaleNutrition(item, multiplier.Value, _logger);
-                    item.Quantity = scaleToQuantity;
-                    item.Unit = scaleToUnit;
-
+                    var targetWeightGrams = UnitScalingHelpers.TryConvertToGrams(scaleToQuantity, scaleToUnit);
+                    if (targetWeightGrams.HasValue)
+                    {
+                        var currentWeightGrams = item.WeightGramsPerUnit.Value * item.Quantity;
+                        var scaleFactor = targetWeightGrams.Value / currentWeightGrams;
+                        ScaleFoodItem(item, scaleFactor);
+                        return;
+                    }
                 }
-                else
-                {
-                    // Fallback: use user-provided quantity and unit without scaling                    
-                    item.Quantity = scaleToQuantity;
-                    item.Unit = scaleToUnit;
 
-                }
+                // If we can't convert, just update the quantity and unit
+                item.Quantity = scaleToQuantity;
+                item.Unit = scaleToUnit;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error scaling food item {FoodName}", item.Name);
+                _logger.LogError(ex, "Error scaling food item: {Name}", item.Name);
             }
         }
 
-        private async Task<List<FoodItem>> ResolveAndScaleNutritionixFoodAsync(
-            NutritionixFood nutritionixFood,
-            ParsedFoodItem originalInput)
+        private void ScaleFoodItem(FoodItem item, double scaleFactor)
         {
-            var response = new NutritionixResponse
+            item.Quantity *= scaleFactor;
+            item.Calories *= scaleFactor;
+            item.Protein *= scaleFactor;
+            item.Fat *= scaleFactor;
+            item.Carbohydrates *= scaleFactor;
+
+            if (item.Micronutrients != null)
             {
-                Foods = new List<NutritionixFood> { nutritionixFood }
-            };
+                foreach (var key in item.Micronutrients.Keys.ToList())
+                {
+                    item.Micronutrients[key] *= scaleFactor;
+                }
+            }
+        }
 
-            var normalizedFoodItems = MapAndNormalizeNutritionixResponseToFoodItem(response);
+        private List<FoodNutrition> ConvertFoodItemsToFoodNutrition(List<FoodItem> foodItems)
+        {
+            var result = new List<FoodNutrition>();
 
-
-            foreach (var normalizedFoodItem in normalizedFoodItems)
+            foreach (var item in foodItems)
             {
-                ScaleFoodItemFromUserInput(
-                    normalizedFoodItem,
-                    originalInput.Quantity,
-                    originalInput.Unit);
+                var foodNutrition = new FoodNutrition
+                {
+                    Name = item.Name,
+                    BrandName = item.BrandName,
+                    Quantity = item.Quantity.ToString(),
+                    Unit = item.Unit,
+                    Calories = item.Calories,
+                    Macronutrients = new Macronutrients
+                    {
+                        Protein = new NutrientInfo { Amount = item.Protein, Unit = "g" },
+                        Carbohydrates = new NutrientInfo { Amount = item.Carbohydrates, Unit = "g" },
+                        Fat = new NutrientInfo { Amount = item.Fat, Unit = "g" }
+                    },
+                    Micronutrients = item.Micronutrients.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => new Micronutrient { Amount = kvp.Value, Unit = "g" }
+                    )
+                };
+
+                result.Add(foodNutrition);
             }
 
-            return normalizedFoodItems;
+            return result;
         }
-        
+
         private async Task SaveFoodEntryAsync(string accountId, string description, List<FoodItem> foodItems)
         {
             try
             {
-                // todo v2 UX upgrade candidate
-                // var groupedItems = await _openAiService.GroupFoodItemsAsync(description, foodItems);
-                var groupedItems = new List<FoodGroup>
+                var foodEntry = new FoodEntry
                 {
-                    new FoodGroup
+                    AccountId = accountId,
+                    Description = description,
+                    LoggedDateUtc = DateTime.UtcNow,
+                    GroupedItems = new List<FoodGroup>
                     {
-                        GroupName = "Meal",
-                        Items = foodItems
+                        new FoodGroup
+                        {
+                            GroupName = "Meal",
+                            Items = foodItems
+                        }
                     }
                 };
-                if (groupedItems == null || !groupedItems.Any())
-                {
-                    _logger.LogWarning("AI grouping failed, falling back to individual groups");
-                    groupedItems = foodItems.Select(x => new FoodGroup
-                    {
-                        GroupName = x.Name,
-                        Items = new List<FoodItem> { x }
-                    }).ToList();
-                }
 
-                var request = new CreateFoodEntryRequest
+                await _foodEntryService.AddFoodEntryAsync(accountId, new CreateFoodEntryRequest
                 {
                     Description = description,
                     Meal = MealType.Unknown,
                     LoggedDateUtc = DateTime.UtcNow,
-                    GroupedItems = groupedItems
-                };
-
-                var response = await _foodEntryService.AddFoodEntryAsync(accountId, request);
-                if (!response.IsSuccess)
-                {
-                    _logger.LogWarning("Failed to save food entry for Account {AccountId}: {Errors}",
-                        accountId, string.Join(", ", response.Errors));
-                }
-                else
-                {
-                    _logger.LogInformation("Successfully saved food entry {FoodEntryId} for Account {AccountId}",
-                        response.FoodEntry?.Id, accountId);
-                }
+                    GroupedItems = foodEntry.GroupedItems
+                });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving food entry for Account {AccountId} and description {Description}", accountId, description);
+                _logger.LogError(ex, "Error saving food entry for account {AccountId}", accountId);
             }
         }
-
-
-
     }
 }
 

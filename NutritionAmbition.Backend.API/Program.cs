@@ -3,6 +3,7 @@ using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using NutritionAmbition.Backend.API.Services;
 using NutritionAmbition.Backend.API.Settings;
+using NutritionAmbition.Backend.API.Clients;
 using Microsoft.Extensions.Options;
 using NutritionAmbition.Backend.API.Repositories;
 using Microsoft.IdentityModel.Tokens;
@@ -52,8 +53,19 @@ builder.Services.AddSingleton(openAiSettings);
 var nutritionixSettings = builder.Configuration.GetSection(AppConstants.NutritionixSettings).Get<NutritionixSettings>();
 builder.Services.AddSingleton(nutritionixSettings);
 
-var fatSecretSettings = builder.Configuration.GetSection(AppConstants.FatSecretSettings).Get<FatSecretSettings>();
-builder.Services.AddSingleton(fatSecretSettings);
+// Configure FatSecret Settings
+builder.Services.Configure<FatSecretSettings>(builder.Configuration.GetSection(AppConstants.FatSecretSettings));
+builder.Services.AddSingleton<FatSecretSettings>(sp =>
+{
+    var section = builder.Configuration.GetSection(AppConstants.FatSecretSettings);
+    return section.Get<FatSecretSettings>()!;
+});
+
+// Register FatSecret Services
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<FatSecretTokenProvider>();
+builder.Services.AddSingleton<FatSecretClient>();
+builder.Services.AddSingleton<IFoodDataApi, FatSecretService>();
 
 // 🟢 Database
 var pack = new ConventionPack
@@ -104,12 +116,6 @@ builder.Services.AddScoped<IAssistantToolService, AssistantToolService>();
 
 // Register the AssistantToolHandler service
 builder.Services.AddScoped<IAssistantToolHandlerService, AssistantToolHandlerService>();
-
-// Register Nutritionix Service with HttpClient
-builder.Services.AddHttpClient<NutritionixClient>();
-builder.Services.AddSingleton<NutritionixClient>();
-builder.Services.AddSingleton<INutritionixService, NutritionixService>();
-builder.Services.AddScoped<INutritionService, NutritionService>();
 
 // Register OpenAI SDK Client
 builder.Services.AddSingleton(sp => 
