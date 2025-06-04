@@ -19,7 +19,6 @@ namespace NutritionAmbition.Backend.API.Services
         Task<AccountResponse> CreateAccountAsync(AccountRequest request, string googleAuthUserId);
         Task<Account> GetAccountByGoogleAuthIdAsync(string googleAuthUserId);
         Task<Account> CreateAnonymousAccountAsync();
-        Task<MergeAnonymousAccountResponse> MergeAnonymousAccountAsync(string anonymousAccountId, string userAccountId);
     }
 
     public class AccountsService : IAccountsService
@@ -144,7 +143,7 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 // Generate a unique name for the anonymous user
                 string anonymousName = $"AnonymousUser_{Guid.NewGuid().ToString().Substring(0, 8)}";
-                
+
                 var account = new Account
                 {
                     Name = anonymousName,
@@ -163,65 +162,5 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        /// <summary>
-        /// Merges an anonymous account into a user account
-        /// </summary>
-        /// <param name="anonymousAccountId">The anonymous account ID to merge from</param>
-        /// <param name="userAccountId">The user account ID to merge into</param>
-        /// <returns>A response indicating success and migration counts</returns>
-        public async Task<MergeAnonymousAccountResponse> MergeAnonymousAccountAsync(string anonymousAccountId, string userAccountId)
-        {
-            var response = new MergeAnonymousAccountResponse();
-
-            try
-            {
-                _logger.LogInformation("Merging anonymous account {AnonymousAccountId} to user account {UserAccountId}", 
-                    anonymousAccountId, userAccountId);
-                    
-                if (string.IsNullOrEmpty(anonymousAccountId))
-                {
-                    _logger.LogWarning("Cannot merge accounts: Anonymous account ID is null or empty");
-                    response.AddError("Anonymous account ID is required.");
-                    return response;
-                }
-                
-                if (string.IsNullOrEmpty(userAccountId))
-                {
-                    _logger.LogWarning("Cannot merge accounts: User account ID is null or empty");
-                    response.AddError("User account ID is required.");
-                    return response;
-                }
-                
-                if (anonymousAccountId == userAccountId)
-                {
-                    _logger.LogWarning("Cannot merge accounts: Anonymous account ID and user account ID are the same");
-                    response.AddError("Anonymous account and user account cannot be the same.");
-                    return response;
-                }
-
-                long chatCount = await _chatMessageRepository.UpdateAccountReferencesAsync(anonymousAccountId, userAccountId);
-                _logger.LogInformation("Migrated {Count} chat messages from anonymous account {AnonymousAccountId} to user account {UserAccountId}",
-                    chatCount, anonymousAccountId, userAccountId);
-                    
-                long foodCount = await _foodEntryRepository.UpdateAccountReferencesAsync(anonymousAccountId, userAccountId);
-                _logger.LogInformation("Migrated {Count} food entries from anonymous account {AnonymousAccountId} to user account {UserAccountId}",
-                    foodCount, anonymousAccountId, userAccountId);
-                    
-                await DeleteAccountAsync(anonymousAccountId);
-                _logger.LogInformation("Successfully deleted anonymous account {AnonymousAccountId} after migration", anonymousAccountId);
-
-                response.IsSuccess = true;
-                response.ChatMessagesMigrated = chatCount;
-                response.FoodEntriesMigrated = foodCount;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error merging anonymous account {AnonymousAccountId} into user account {UserAccountId}: {ErrorMessage}", 
-                    anonymousAccountId, userAccountId, ex.Message);
-                response.AddError("Failed to merge anonymous account data.");
-            }
-
-            return response;
-        }
     }
 }

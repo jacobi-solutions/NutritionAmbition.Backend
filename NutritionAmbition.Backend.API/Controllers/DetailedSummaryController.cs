@@ -4,13 +4,12 @@ using Microsoft.Extensions.Logging;
 using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Models;
 using NutritionAmbition.Backend.API.Services;
-using NutritionAmbition.Backend.API.Extensions;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class DetailedSummaryController : ControllerBase
+    public class DetailedSummaryController : BaseController
     {
         private readonly IDetailedSummaryService _detailedSummaryService;
         private readonly IAccountsService _accountsService;
@@ -19,7 +18,7 @@ namespace NutritionAmbition.Backend.API.Controllers
         public DetailedSummaryController(
             IDetailedSummaryService detailedSummaryService,
             IAccountsService accountsService,
-            ILogger<DetailedSummaryController> logger)
+            ILogger<DetailedSummaryController> logger) : base(accountsService, logger)
         {
             _detailedSummaryService = detailedSummaryService;
             _accountsService = accountsService;
@@ -34,20 +33,14 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized("User account not found");
-            }
-
             _logger.LogInformation("Getting detailed summary for account {AccountId} on date {LoggedDate}", 
-                account.Id, request.LoggedDateUtc.ToString("yyyy-MM-dd"));
+                _account.Id, request.LoggedDateUtc.ToString("yyyy-MM-dd"));
 
-            var response = await _detailedSummaryService.GetDetailedSummaryAsync(account.Id, request.LoggedDateUtc);
+            var response = await _detailedSummaryService.GetDetailedSummaryAsync(_account.Id, request.LoggedDateUtc);
             
             if (!response.IsSuccess)
             {
-                _logger.LogWarning("Failed to get detailed summary for account {AccountId}", account.Id);
+                _logger.LogWarning("Failed to get detailed summary for account {AccountId}", _account.Id);
                 return BadRequest(response);
             }
 

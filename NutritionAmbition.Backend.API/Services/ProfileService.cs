@@ -10,8 +10,8 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface IProfileService
     {
-        Task<SaveUserProfileResponse> SaveUserProfileAsync(SaveUserProfileRequest request);
-        Task<GetProfileAndGoalsResponse> GetProfileAndGoalsAsync(GetProfileAndGoalsRequest request);
+        Task<SaveUserProfileResponse> SaveUserProfileAsync(SaveUserProfileRequest request, Account account);
+        Task<GetProfileAndGoalsResponse> GetProfileAndGoalsAsync(Account account);
     }
     
     public class ProfileService : IProfileService
@@ -33,15 +33,15 @@ namespace NutritionAmbition.Backend.API.Services
             _logger = logger;
         }
 
-        public async Task<SaveUserProfileResponse> SaveUserProfileAsync(SaveUserProfileRequest request)
+        public async Task<SaveUserProfileResponse> SaveUserProfileAsync(SaveUserProfileRequest request, Account account)
         {
             var response = new SaveUserProfileResponse();
 
             try
             {
-                _logger.LogInformation("Saving user profile for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Saving user profile for account {AccountId}", account.Id);
 
-                if (string.IsNullOrEmpty(request.AccountId))
+                if (string.IsNullOrEmpty(account.Id))
                 {
                     response.AddError("AccountId is required");
                     return response;
@@ -71,10 +71,9 @@ namespace NutritionAmbition.Backend.API.Services
                     return response;
                 }
 
-                var account = await _accountsService.GetAccountByIdAsync(request.AccountId);
                 if (account == null)
                 {
-                    response.AddError($"Account with ID {request.AccountId} not found");
+                    response.AddError($"Account with ID {account.Id} not found");
                     return response;
                 }
 
@@ -93,42 +92,42 @@ namespace NutritionAmbition.Backend.API.Services
                 await _accountsService.UpdateAccountAsync(account.Id, account);
 
                 response.IsSuccess = true;
-                _logger.LogInformation("Successfully saved user profile for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Successfully saved user profile for account {AccountId}", account.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving user profile for account {AccountId}", request.AccountId);
+                _logger.LogError(ex, "Error saving user profile for account {AccountId}", account.Id);
                 response.AddError("An error occurred while saving the user profile.");
             }
 
             return response;
         }
 
-        public async Task<GetProfileAndGoalsResponse> GetProfileAndGoalsAsync(GetProfileAndGoalsRequest request)
+        public async Task<GetProfileAndGoalsResponse> GetProfileAndGoalsAsync(Account account)
         {
             var response = new GetProfileAndGoalsResponse();
 
             try
             {
-                _logger.LogInformation("Retrieving profile and goals for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Retrieving profile and goals for account {AccountId}", account.Id);
 
                 // Check if a default goal profile exists for the account
-                var defaultGoalProfile = await _defaultGoalProfileRepository.GetByAccountIdAsync(request.AccountId);
+                var defaultGoalProfile = await _defaultGoalProfileRepository.GetByAccountIdAsync(account.Id);
 
                 // Set HasGoals based on whether a default profile exists
                 if (defaultGoalProfile == null)
                 {
-                    _logger.LogInformation("No default goal profile found for account {AccountId}", request.AccountId);
+                    _logger.LogInformation("No default goal profile found for account {AccountId}", account.Id);
                     response.HasGoals = false;
                     response.IsSuccess = true;
                     return response;
                 }
 
-                _logger.LogInformation("Default goal profile found for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Default goal profile found for account {AccountId}", account.Id);
                 response.HasGoals = true;
 
                 // Get the latest DailyGoal for the account to extract base calories
-                var latestGoal = await _dailyGoalRepository.GetLatestByAccountIdAsync(request.AccountId);
+                var latestGoal = await _dailyGoalRepository.GetLatestByAccountIdAsync(account.Id);
                 if (latestGoal != null)
                 {
                     response.BaseCalories = latestGoal.BaseCalories;
@@ -136,8 +135,6 @@ namespace NutritionAmbition.Backend.API.Services
 
                 response.IsSuccess = true;
 
-                // Get account details - might have some profile data
-                var account = await _accountsService.GetAccountByIdAsync(request.AccountId);
                 if (account != null && account.UserProfile != null)
                 {
                     // Extract profile information if available
@@ -149,11 +146,11 @@ namespace NutritionAmbition.Backend.API.Services
                     response.ActivityLevel = account.UserProfile.ActivityLevel;
                 }
 
-                _logger.LogInformation("Successfully retrieved profile and goals for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Successfully retrieved profile and goals for account {AccountId}", account.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving profile and goals for account {AccountId}", request.AccountId);
+                _logger.LogError(ex, "Error retrieving profile and goals for account {AccountId}", account.Id);
                 response.AddError("An error occurred while retrieving the profile and goals.");
             }
 

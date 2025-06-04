@@ -173,7 +173,6 @@ namespace NutritionAmbition.Backend.API.Services
         {
             var response = new BotMessageResponse
             {
-                AccountId = accountId,
                 IsSuccess = true
             };
 
@@ -590,7 +589,6 @@ namespace NutritionAmbition.Backend.API.Services
         {
             var response = new BotMessageResponse
             {
-                AccountId = accountId,
                 IsSuccess = true,
                 // Clone any other properties needed from the initial response
                 Message = initialResponse.Message

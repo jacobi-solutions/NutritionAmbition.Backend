@@ -7,7 +7,6 @@ namespace NutritionAmbition.Backend.API.DataContracts
     public class BotMessageResponse : Response
     {
         public string Message { get; set; } = string.Empty;
-        public string AccountId { get; set; } = string.Empty;
         public List<ToolCall> ToolCalls { get; set; } = new List<ToolCall>();
         public string? ResponseId { get; set; }
         public bool LoggedMeal { get; set; } = false;

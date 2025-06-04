@@ -14,7 +14,7 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface IAssistantToolHandlerService
     {
-        Task<string> HandleToolCallAsync(string accountId, string toolName, string toolInput);
+        Task<string> HandleToolCallAsync(Account account, string toolName, string toolInput);
     }
 
     public class AssistantToolHandlerService : IAssistantToolHandlerService
@@ -30,26 +30,26 @@ namespace NutritionAmbition.Backend.API.Services
             _logger = logger;
         }
 
-        public async Task<string> HandleToolCallAsync(string accountId, string toolName, string toolInput)
+        public async Task<string> HandleToolCallAsync(Account account, string toolName, string toolInput)
         {
             try
             {
-                _logger.LogInformation("Handling tool call {ToolName} for account {AccountId}", toolName, accountId);
+                _logger.LogInformation("Handling tool call {ToolName} for account {AccountId}", toolName, account.Id);
 
                 switch (toolName)
                 {
                     case AssistantToolTypes.LogMealTool:
-                        return await HandleLogMealToolAsync(accountId, toolInput);
+                        return await HandleLogMealToolAsync(account, toolInput);
                     case AssistantToolTypes.SaveUserProfileTool:
-                        return await HandleSaveUserProfileToolAsync(accountId, toolInput);
+                        return await HandleSaveUserProfileToolAsync(account, toolInput);
                     case AssistantToolTypes.GetProfileAndGoalsTool:
-                        return await HandleGetProfileAndGoalsToolAsync(accountId, toolInput);
+                        return await HandleGetProfileAndGoalsToolAsync(account, toolInput);
                     case AssistantToolTypes.SetDefaultGoalProfileTool:
-                        return await HandleSetDefaultGoalProfileToolAsync(accountId, toolInput);
+                        return await HandleSetDefaultGoalProfileToolAsync(account, toolInput);
                     case AssistantToolTypes.OverrideDailyGoalsTool:
-                        return await HandleOverrideDailyGoalsToolAsync(accountId, toolInput);
+                        return await HandleOverrideDailyGoalsToolAsync(account, toolInput);
                     case AssistantToolTypes.GetUserContextTool:
-                        return await HandleGetUserContextToolAsync(accountId, toolInput);
+                        return await HandleGetUserContextToolAsync(account, toolInput);
                     default:
                         _logger.LogWarning("Unknown tool call: {ToolName}", toolName);
                         return JsonSerializer.Serialize(new { error = $"Unknown tool: {toolName}" });
@@ -57,12 +57,12 @@ namespace NutritionAmbition.Backend.API.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error handling tool call {ToolName} for account {AccountId}", toolName, accountId);
+                _logger.LogError(ex, "Error handling tool call {ToolName} for account {AccountId}", toolName, account.Id);
                 return JsonSerializer.Serialize(new { error = $"Error processing tool call: {ex.Message}" });
             }
         }
 
-        private async Task<string> HandleLogMealToolAsync(string accountId, string toolInput)
+        private async Task<string> HandleLogMealToolAsync(Account account, string toolInput)
         {
             try
             {
@@ -78,7 +78,7 @@ namespace NutritionAmbition.Backend.API.Services
                 }
 
                 // Call the service to process the meal
-                var response = await _assistantToolService.LogMealToolAsync(accountId, mealRequest.Meal);
+                var response = await _assistantToolService.LogMealToolAsync(account, mealRequest.Meal);
 
                 try
                 {
@@ -106,7 +106,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        private async Task<string> HandleSaveUserProfileToolAsync(string accountId, string toolInput)
+        private async Task<string> HandleSaveUserProfileToolAsync(Account account, string toolInput)
         {
             try
             {
@@ -124,7 +124,6 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var profileRequest = new DataContracts.Profile.SaveUserProfileRequest
                 {
-                    AccountId = accountId,
                     Age = age,
                     Sex = sex,
                     HeightFeet = heightFeet,
@@ -133,7 +132,7 @@ namespace NutritionAmbition.Backend.API.Services
                     ActivityLevel = activityLevel
                 };
 
-                var response = await _assistantToolService.SaveUserProfileToolAsync(profileRequest);
+                var response = await _assistantToolService.SaveUserProfileToolAsync(account, profileRequest);
                 return JsonSerializer.Serialize(response);
             }
             catch (JsonException ex)
@@ -148,12 +147,12 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        private async Task<string> HandleGetProfileAndGoalsToolAsync(string accountId, string toolInput)
+        private async Task<string> HandleGetProfileAndGoalsToolAsync(Account account, string toolInput)
         {
             try
             {
                 // Call the service to get the profile and goals
-                var response = await _assistantToolService.GetProfileAndGoalsToolAsync(accountId);
+                var response = await _assistantToolService.GetProfileAndGoalsToolAsync(account);
 
                 // Return the serialized response
                 return JsonSerializer.Serialize(response);
@@ -165,7 +164,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
         
-        private async Task<string> HandleSetDefaultGoalProfileToolAsync(string accountId, string toolInput)
+        private async Task<string> HandleSetDefaultGoalProfileToolAsync(Account account, string toolInput)
         {
             try
             {
@@ -179,12 +178,9 @@ namespace NutritionAmbition.Backend.API.Services
                     return JsonSerializer.Serialize(new { error = "Invalid input format for SetDefaultGoalProfileTool" });
                 }
                 
-                // Set the account ID
-                profileRequest.AccountId = accountId;
-                
                 // Log the number of nutrient goals received
                 _logger.LogInformation("Received {Count} nutrient goals for account {AccountId}", 
-                    profileRequest.NutrientGoals?.Count ?? 0, accountId);
+                    profileRequest.NutrientGoals?.Count ?? 0, account.Id);
                 
                 // Check for missing required fields
                 if (profileRequest.BaseCalories <= 0)
@@ -193,7 +189,7 @@ namespace NutritionAmbition.Backend.API.Services
                     return JsonSerializer.Serialize(new { error = "BaseCalories is required and must be greater than zero" });
                 }
 
-                var response = await _assistantToolService.SetDefaultGoalProfileToolAsync(profileRequest);
+                var response = await _assistantToolService.SetDefaultGoalProfileToolAsync(account, profileRequest);
                 return JsonSerializer.Serialize(response);
             }
             catch (JsonException ex)
@@ -209,7 +205,7 @@ namespace NutritionAmbition.Backend.API.Services
         }
 
 
-        private async Task<string> HandleOverrideDailyGoalsToolAsync(string accountId, string toolInput)
+        private async Task<string> HandleOverrideDailyGoalsToolAsync(Account account, string toolInput)
         {
             try
             {
@@ -221,12 +217,11 @@ namespace NutritionAmbition.Backend.API.Services
                 // Create a request object from the dynamic data
                 var profileRequest = new OverrideDailyGoalsRequest
                 {
-                    AccountId = accountId,
                     NewBaseCalories = Convert.ToDouble(request.GetProperty("newBaseCalories"))
                 };
 
                 // Call the service to process the daily goals override
-                var response = await _assistantToolService.OverrideDailyGoalsToolAsync(profileRequest);
+                var response = await _assistantToolService.OverrideDailyGoalsToolAsync(account, profileRequest);
 
                 // Return the serialized response
                 return JsonSerializer.Serialize(response);
@@ -243,7 +238,7 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        private async Task<string> HandleGetUserContextToolAsync(string accountId, string toolInput)
+        private async Task<string> HandleGetUserContextToolAsync(Account account, string toolInput)
         {
             try
             {
@@ -253,7 +248,7 @@ namespace NutritionAmbition.Backend.API.Services
                 var request = JsonSerializer.Deserialize<GetUserContextRequest>(unescapedJson, options);
 
                 // Call the service to get the user context
-                var response = await _assistantToolService.GetUserContextToolAsync(accountId, request?.TimezoneOffsetMinutes);
+                var response = await _assistantToolService.GetUserContextToolAsync(account, request?.TimezoneOffsetMinutes);
 
                 // Return the serialized response
                 return JsonSerializer.Serialize(response);

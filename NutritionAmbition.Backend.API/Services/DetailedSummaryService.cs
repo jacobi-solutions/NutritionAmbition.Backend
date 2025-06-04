@@ -34,7 +34,7 @@ namespace NutritionAmbition.Backend.API.Services
 
         public async Task<GetDetailedSummaryResponse> GetDetailedSummaryAsync(string accountId, DateTime loggedDateUtc)
         {
-            var response = new GetDetailedSummaryResponse { AccountId = accountId };
+            var response = new GetDetailedSummaryResponse {  };
 
             try
             {

@@ -4,22 +4,18 @@ using NutritionAmbition.Backend.API.DataContracts;
 using NutritionAmbition.Backend.API.Services;
 using System.Threading.Tasks;
 using System.Linq;
-using NutritionAmbition.Backend.API.Attributes;
-using NutritionAmbition.Backend.API.Extensions;
 using System;
 
 namespace NutritionAmbition.Backend.API.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [FlexibleAuthorize]
-    public class NutritionController : ControllerBase
+    [Authorize]
+    public class NutritionController : BaseController
     {
         private readonly INutritionService _nutritionService;
         private readonly IDailySummaryService _dailySummaryService;
         private readonly IOpenAiService _openAiService;
-        private readonly IAccountsService _accountsService;
-        private readonly ILogger<NutritionController> _logger;
 
         public NutritionController(
             INutritionService nutritionService,
@@ -27,11 +23,10 @@ namespace NutritionAmbition.Backend.API.Controllers
             IAccountsService accountsService,
             ILogger<NutritionController> logger,
             IDailySummaryService dailySummaryService)
+            : base(accountsService, logger)
         {
             _nutritionService = nutritionService;
             _openAiService = openAiService;
-            _accountsService = accountsService;
-            _logger = logger;
             _dailySummaryService = dailySummaryService;
         }
 
@@ -43,17 +38,12 @@ namespace NutritionAmbition.Backend.API.Controllers
         //         return BadRequest(ModelState);
         //     }
 
-        //     // Get account using the extension method which handles both auth types
-        //     var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-        //     if (account == null)
-        //     {
-        //         return Unauthorized();
-        //     }
+        //     // Account initialization is now handled automatically by the BaseController
 
         //     _logger.LogInformation("Getting nutrition data for food item: {FoodDescription}", request.FoodDescription);
             
         //     // Use the updated method that directly queries Nutritionix
-        //     var response = await _nutritionService.GetNutritionDataForFoodItemAsync(account.Id, request.FoodDescription);
+        //     var response = await _nutritionService.GetNutritionDataForFoodItemAsync(_account.Id, request.FoodDescription);
                 
         //     return Ok(response);
         // }
@@ -66,17 +56,12 @@ namespace NutritionAmbition.Backend.API.Controllers
         //         return BadRequest(ModelState);
         //     }
 
-        //     // Get account using the extension method which handles both auth types
-        //     var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-        //     if (account == null)
-        //     {
-        //         return Unauthorized();
-        //     }
+        //     // Account initialization is now handled automatically by the BaseController
 
         //     _logger.LogInformation("Processing food text and getting nutrition data: {FoodDescription}", request.FoodDescription);
 
         //     // Use the streamlined method that handles everything automatically
-        //     var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(account.Id, request.FoodDescription);
+        //     var nutritionData = await _nutritionService.ProcessFoodTextAndGetNutritionAsync(_account.Id, request.FoodDescription);
         //     if (!nutritionData.IsSuccess)
         //     {
         //         return BadRequest(new { error = "Failed to process food text and get nutrition data", details = nutritionData.Errors });
@@ -93,16 +78,11 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            // Get account using the extension method which handles both auth types
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized();
-            }
+            // Account initialization is now handled automatically by the BaseController
 
             _logger.LogInformation("Getting smart nutrition data: {FoodDescription}", request.FoodDescription);
 
-            var nutritionData = await _nutritionService.GetSmartNutritionDataAsync(account.Id, request.FoodDescription);
+            var nutritionData = await _nutritionService.GetSmartNutritionDataAsync(_account.Id, request.FoodDescription);
             if (!nutritionData.IsSuccess)
             {
                 return BadRequest(new { error = "Failed to get smart nutrition data", details = nutritionData.Errors });
@@ -121,13 +101,9 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized();
-            }
+            // Account initialization is now handled automatically by the BaseController
 
-            var response = await _dailySummaryService.GetWeeklySummaryAsync(account.Id, request.Date);
+            var response = await _dailySummaryService.GetWeeklySummaryAsync(_account.Id, request.Date);
             return Ok(response);
         }
 
@@ -139,13 +115,9 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var account = await HttpContext.GetAccountFromContextAsync(_accountsService);
-            if (account == null)
-            {
-                return Unauthorized();
-            }
+            // Account initialization is now handled automatically by the BaseController
 
-            var response = await _dailySummaryService.GetMonthlySummaryAsync(account.Id, request.Date);
+            var response = await _dailySummaryService.GetMonthlySummaryAsync(_account.Id, request.Date);
             return Ok(response);
         }
     }

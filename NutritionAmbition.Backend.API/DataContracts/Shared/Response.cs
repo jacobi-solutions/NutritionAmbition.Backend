@@ -9,7 +9,6 @@ namespace NutritionAmbition.Backend.API.DataContracts
         public bool IsSuccess { get; set; } = true;
         public string? CorrelationId { get; set; } = Guid.NewGuid().ToString();
         public string? StackTrace { get; set; }
-        public string? AccountId { get; set; }
 
         public void AddError(string message, string? errorCode = null)
         {

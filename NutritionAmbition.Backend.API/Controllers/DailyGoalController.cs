@@ -12,20 +12,14 @@ namespace NutritionAmbition.Backend.API.Controllers
     [ApiController]
     [Route("api/dailygoal")]
     [Authorize]
-    public class DailyGoalController : ControllerBase
+    public class DailyGoalController : BaseController
     {
         private readonly IDailyGoalService _dailyGoalService;
-        private readonly AccountsService _accountsService;
-        private readonly ILogger<DailyGoalController> _logger;
 
-        public DailyGoalController(
-            IDailyGoalService dailyGoalService, 
-            AccountsService accountsService,
-            ILogger<DailyGoalController> logger)
+        public DailyGoalController(IDailyGoalService dailyGoalService, IAccountsService accountsService, ILogger<DailyGoalController> logger)
+            : base(accountsService, logger)
         {
             _dailyGoalService = dailyGoalService;
-            _accountsService = accountsService;
-            _logger = logger;
         }
 
         [HttpPost("GetDailyGoal")]
@@ -36,13 +30,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(ModelState);
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
-            if (account == null)
-            {
-                _logger.LogWarning("Unauthorized access attempt for getting daily goal. User not found.");
-                return Unauthorized();
-            }
+            // Account initialization is now handled automatically by the BaseController
 
             // Create response object
             var response = new GetDailyGoalResponse();
@@ -53,7 +41,7 @@ namespace NutritionAmbition.Backend.API.Controllers
                 DateTime requestDate = request.Date ?? DateTime.UtcNow.Date;
                 
                 // Use the new read-only method that doesn't create a goal if one doesn't exist
-                var dailyGoal = await _dailyGoalService.GetGoalByDateAsync(account.Id, requestDate);
+                var dailyGoal = await _dailyGoalService.GetGoalByDateAsync(_account.Id, requestDate);
                 
                 // Set the response - goal can be null if not found
                 response.DailyGoal = dailyGoal;
@@ -63,7 +51,7 @@ namespace NutritionAmbition.Backend.API.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving daily goal for account {AccountId}", account.Id);
+                _logger.LogError(ex, "Error retrieving daily goal for account {AccountId}", _account.Id);
                 response.AddError($"Failed to retrieve daily goal: {ex.Message}");
                 return BadRequest(response);
             }
@@ -83,15 +71,9 @@ namespace NutritionAmbition.Backend.API.Controllers
                 return BadRequest(new { error = "DailyGoal data is required" });
             }
 
-            var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-            var account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
-            if (account == null)
-            {
-                _logger.LogWarning("Unauthorized access attempt for setting daily goal. User not found.");
-                return Unauthorized();
-            }
+            // Account initialization is now handled automatically by the BaseController
 
-            var response = await _dailyGoalService.SetGoalsAsync(account.Id, request);
+            var response = await _dailyGoalService.SetGoalsAsync(_account.Id, request);
             
             if (response.IsSuccess)
             {

@@ -13,12 +13,12 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface IAssistantToolService
     {
-        Task<LogMealToolResponse> LogMealToolAsync(string accountId, string meal);
-        Task<GetProfileAndGoalsResponse> GetProfileAndGoalsToolAsync(string accountId);
-        Task<SetDefaultGoalProfileResponse> SetDefaultGoalProfileToolAsync(SetDefaultGoalProfileRequest request);
-        Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(OverrideDailyGoalsRequest request);
-        Task<SaveUserProfileResponse> SaveUserProfileToolAsync(SaveUserProfileRequest request);
-        Task<GetUserContextResponse> GetUserContextToolAsync(string accountId, int? timezoneOffsetMinutes);
+        Task<LogMealToolResponse> LogMealToolAsync(Account account, string meal);
+        Task<GetProfileAndGoalsResponse> GetProfileAndGoalsToolAsync(Account account);
+        Task<SetDefaultGoalProfileResponse> SetDefaultGoalProfileToolAsync(Account account, SetDefaultGoalProfileRequest request);
+        Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(Account account, OverrideDailyGoalsRequest request);
+        Task<SaveUserProfileResponse> SaveUserProfileToolAsync(Account account, SaveUserProfileRequest request);
+        Task<GetUserContextResponse> GetUserContextToolAsync(Account account, int? timezoneOffsetMinutes);
     }
 
     public class AssistantToolService : IAssistantToolService
@@ -52,21 +52,21 @@ namespace NutritionAmbition.Backend.API.Services
             _dailyGoalService = dailyGoalService;
         }
 
-        public async Task<LogMealToolResponse> LogMealToolAsync(string accountId, string meal)
+        public async Task<LogMealToolResponse> LogMealToolAsync(Account account, string meal)
         {
             var response = new LogMealToolResponse();
 
             try
             {
-                _logger.LogInformation("Processing assistant meal logging request for account {AccountId}: {Meal}", accountId, meal);
+                _logger.LogInformation("Processing assistant meal logging request for account {AccountId}: {Meal}", account.Id, meal);
 
                 // Get nutrition data using the smart nutrition service
-                var nutritionResponse = await _nutritionService.GetSmartNutritionDataAsync(accountId, meal);
+                var nutritionResponse = await _nutritionService.GetSmartNutritionDataAsync(account.Id, meal);
 
                 if (!nutritionResponse.IsSuccess)
                 {
                     _logger.LogWarning("Failed to process meal for account {AccountId}: {Errors}",
-                        accountId, string.Join(", ", nutritionResponse.Errors.Select(e => e.ErrorMessage)));
+                        account.Id, string.Join(", ", nutritionResponse.Errors.Select(e => e.ErrorMessage)));
                     response.AddError("Failed to process meal. Please try a more specific description.");
                     return response;
                 }
@@ -74,12 +74,12 @@ namespace NutritionAmbition.Backend.API.Services
                 // Check if we got valid nutrition data
                 if (nutritionResponse.Foods == null || !nutritionResponse.Foods.Any())
                 {
-                    _logger.LogWarning("No nutrition data found for account {AccountId} meal: {Meal}", accountId, meal);
+                    _logger.LogWarning("No nutrition data found for account {AccountId} meal: {Meal}", account.Id, meal);
                     response.AddError("No foods could be identified in your meal description.");
                     return response;
                 }
 
-                _logger.LogInformation("Meal has been processed and saved via NutritionService for account {AccountId}", accountId);
+                _logger.LogInformation("Meal has been processed and saved via NutritionService for account {AccountId}", account.Id);
 
                 // Calculate total calories
                 int totalCalories = (int)Math.Round(nutritionResponse.Foods.Sum(f => f.Calories));
@@ -102,36 +102,31 @@ namespace NutritionAmbition.Backend.API.Services
 
                 response.IsSuccess = true;
 
-                _logger.LogInformation("Successfully logged meal for account {AccountId}", accountId);
+                _logger.LogInformation("Successfully logged meal for account {AccountId}", account.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error logging meal for account {AccountId}: {Meal}", accountId, meal);
+                _logger.LogError(ex, "Error logging meal for account {AccountId}: {Meal}", account.Id, meal);
                 response.AddError($"Failed to log your meal: {ex.Message}");
             }
 
             return response;
         }
 
-        public async Task<GetProfileAndGoalsResponse> GetProfileAndGoalsToolAsync(string accountId)
+        public async Task<GetProfileAndGoalsResponse> GetProfileAndGoalsToolAsync(Account account)
         {
-            _logger.LogInformation("AssistantToolService: Getting profile and goals for account {AccountId}", accountId);
+            _logger.LogInformation("AssistantToolService: Getting profile and goals for account {AccountId}", account.Id);
             
-            var request = new GetProfileAndGoalsRequest
-            {
-                AccountId = accountId
-            };
-            
-            return await _profileService.GetProfileAndGoalsAsync(request);
+            return await _profileService.GetProfileAndGoalsAsync(account);
         }
 
-        public async Task<SetDefaultGoalProfileResponse> SetDefaultGoalProfileToolAsync(SetDefaultGoalProfileRequest request)
+        public async Task<SetDefaultGoalProfileResponse> SetDefaultGoalProfileToolAsync(Account account, SetDefaultGoalProfileRequest request)
         {
             var response = new SetDefaultGoalProfileResponse();
 
             try
             {
-                _logger.LogInformation("Setting default goal profile for account {AccountId}", request.AccountId);
+                _logger.LogInformation("Setting default goal profile for account {AccountId}", account.Id);
 
                 var nutrientGoals = request.NutrientGoals != null && request.NutrientGoals.Any()
                     ? request.NutrientGoals
@@ -139,7 +134,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var defaultProfile = new DefaultGoalProfile
                 {
-                    AccountId = request.AccountId,
+                    AccountId = account.Id,
                     BaseCalories = request.BaseCalories,
                     NutrientGoals = nutrientGoals
                 };
@@ -157,14 +152,14 @@ namespace NutritionAmbition.Backend.API.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in SetDefaultGoalProfileToolAsync for account {AccountId}", request.AccountId);
+                _logger.LogError(ex, "Error in SetDefaultGoalProfileToolAsync for account {AccountId}", account.Id);
                 response.AddError("An unexpected error occurred.");
                 return response;
             }
         }
 
 
-        public async Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(OverrideDailyGoalsRequest request)
+        public async Task<OverrideDailyGoalsResponse> OverrideDailyGoalsToolAsync(Account account, OverrideDailyGoalsRequest request)
         {
             var response = new OverrideDailyGoalsResponse();
 
@@ -174,7 +169,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var goal = new DailyGoal
                 {
-                    AccountId = request.AccountId,
+                    AccountId = account.Id,
                     EffectiveDateUtc = DateTime.UtcNow.Date,
                     BaseCalories = request.NewBaseCalories,
                     NutrientGoals = nutrientGoals
@@ -186,53 +181,51 @@ namespace NutritionAmbition.Backend.API.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error overriding daily goals for account {AccountId}", request.AccountId);
+                _logger.LogError(ex, "Error overriding daily goals for account {AccountId}", account.Id);
                 response.AddError("Failed to override today's goals.");
                 return response;
             }
         }
 
-        public async Task<SaveUserProfileResponse> SaveUserProfileToolAsync(SaveUserProfileRequest request)
+        public async Task<SaveUserProfileResponse> SaveUserProfileToolAsync(Account account, SaveUserProfileRequest request)
         {
-            _logger.LogInformation("Processing assistant profile/goals creation request for account {AccountId}", request.AccountId);
+            _logger.LogInformation("Processing assistant profile/goals creation request for account {AccountId}", account.Id);
             
             try
             {
                 // Delegate to the profile service
-                var response = await _profileService.SaveUserProfileAsync(request);
+                var response = await _profileService.SaveUserProfileAsync(request, account);
                 
                 if (response.IsSuccess)
                 {
-                    _logger.LogInformation("Successfully created profile and goals for account {AccountId}", request.AccountId);
+                    _logger.LogInformation("Successfully created profile and goals for account {AccountId}", account.Id);
                 }
                 else
                 {
                     _logger.LogWarning("Failed to create profile and goals for account {AccountId}: {Errors}",
-                        request.AccountId, string.Join(", ", response.Errors.Select(e => e.ErrorMessage)));
+                        account.Id, string.Join(", ", response.Errors.Select(e => e.ErrorMessage)));
                 }
                 
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating profile and goals for account {AccountId}", request.AccountId);
+                _logger.LogError(ex, "Error creating profile and goals for account {AccountId}", account.Id);
                 var errorResponse = new SaveUserProfileResponse();
                 errorResponse.AddError($"Failed to create profile and goals: {ex.Message}");
                 return errorResponse;
             }
         }
 
-        public async Task<GetUserContextResponse> GetUserContextToolAsync(string accountId, int? timezoneOffsetMinutes)
+        public async Task<GetUserContextResponse> GetUserContextToolAsync(Account account, int? timezoneOffsetMinutes)
         {
             var response = new GetUserContextResponse();
 
             try
             {
                 _logger.LogInformation("Getting user context for account {AccountId} with timezone offset {TimezoneOffset}", 
-                    accountId, timezoneOffsetMinutes);
+                    account.Id, timezoneOffsetMinutes);
                 
-                // Retrieve the account
-                var account = await _accountsService.GetAccountByIdAsync(accountId);
                 if (account == null)
                 {
                     response.AddError("Account not found");
@@ -243,7 +236,7 @@ namespace NutritionAmbition.Backend.API.Services
                 bool hasProfile = account.UserProfile != null;
                 
                 // Determine if user has goals by checking for a default goal profile
-                var hasDefaultGoalProfile = await _dailyGoalService.HasDefaultGoalProfileAsync(accountId);
+                var hasDefaultGoalProfile = await _dailyGoalService.HasDefaultGoalProfileAsync(account.Id);
                 
                 // Set HasGoals based on presence of default goal profile
                 bool hasGoals = hasDefaultGoalProfile;
@@ -261,58 +254,16 @@ namespace NutritionAmbition.Backend.API.Services
                 response.LocalDate = localDate;
                 response.IsSuccess = true;
                 
-                _logger.LogInformation("Successfully retrieved user context for account {AccountId}", accountId);
+                _logger.LogInformation("Successfully retrieved user context for account {AccountId}", account.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving user context for account {AccountId}", accountId);
+                _logger.LogError(ex, "Error retrieving user context for account {AccountId}", account.Id);
                 response.AddError($"Failed to retrieve user context: {ex.Message}");
             }
             
             return response;
         }
 
-        private MealType DetermineMealType(string mealDescription)
-        {
-            mealDescription = mealDescription.ToLower();
-
-            if (mealDescription.Contains("breakfast") || 
-                mealDescription.Contains("morning") ||
-                mealDescription.Contains("cereal") ||
-                mealDescription.Contains("toast"))
-            {
-                return MealType.Breakfast;
-            }
-            else if (mealDescription.Contains("lunch") ||
-                     mealDescription.Contains("noon") ||
-                     mealDescription.Contains("sandwich") ||
-                     mealDescription.Contains("wrap"))
-            {
-                return MealType.Lunch;
-            }
-            else if (mealDescription.Contains("dinner") ||
-                     mealDescription.Contains("supper") ||
-                     mealDescription.Contains("evening meal"))
-            {
-                return MealType.Dinner;
-            }
-            else if (mealDescription.Contains("snack") ||
-                     mealDescription.Contains("treat") ||
-                     mealDescription.Contains("between meals"))
-            {
-                return MealType.Snack;
-            }
-
-            // Default to most recent meal type based on current time
-            var hour = DateTime.Now.Hour;
-            if (hour < 11)
-                return MealType.Breakfast;
-            else if (hour < 15)
-                return MealType.Lunch;
-            else if (hour < 20)
-                return MealType.Dinner;
-            else
-                return MealType.Snack;
-        }
     }
 } 

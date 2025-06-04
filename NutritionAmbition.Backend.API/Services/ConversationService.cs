@@ -16,12 +16,12 @@ namespace NutritionAmbition.Backend.API.Services
 {
     public interface IConversationService
     {
-        Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request, string? responseId = null);
-        Task<GetChatMessagesResponse> GetChatMessagesAsync(string accountId, GetChatMessagesRequest request);
-        Task<ClearChatMessagesResponse> ClearChatMessagesAsync(string accountId, ClearChatMessagesRequest request);
-        Task<BotMessageResponse> RunResponsesConversationAsync(string accountId, string message);
-        Task<BotMessageResponse> RunFocusInChatAsync(string accountId, FocusInChatRequest request);
-        Task<BotMessageResponse> RunLearnMoreAboutAsync(string accountId, LearnMoreAboutRequest request);
+        Task<LogChatMessageResponse> LogMessageAsync(Account account, LogChatMessageRequest request, string? responseId = null);
+        Task<GetChatMessagesResponse> GetChatMessagesAsync(Account account, GetChatMessagesRequest request);
+        Task<ClearChatMessagesResponse> ClearChatMessagesAsync(Account account, ClearChatMessagesRequest request);
+        Task<BotMessageResponse> RunResponsesConversationAsync(Account account, string message);
+        Task<BotMessageResponse> RunFocusInChatAsync(Account account, FocusInChatRequest request);
+        Task<BotMessageResponse> RunLearnMoreAboutAsync(Account account, LearnMoreAboutRequest request);
     }
 
     public class ConversationService : IConversationService
@@ -61,24 +61,18 @@ namespace NutritionAmbition.Backend.API.Services
         
 
 
-        public async Task<LogChatMessageResponse> LogMessageAsync(string accountId, LogChatMessageRequest request, string? responseId = null)
+        public async Task<LogChatMessageResponse> LogMessageAsync(Account account, LogChatMessageRequest request, string? responseId = null)
         {
             var response = new LogChatMessageResponse();
 
             try
             {
-                _logger.LogInformation("Logging chat message for account {AccountId}", accountId);
+                _logger.LogInformation("Logging chat message for account {AccountId}", account);
                 
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot log message: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
                 
                 if (string.IsNullOrEmpty(request.Content))
                 {
-                    _logger.LogWarning("Cannot log message: Message content is empty for account {AccountId}", accountId);
+                    _logger.LogWarning("Cannot log message: Message content is empty for account {AccountId}", account.Id);
                     response.AddError("Message content is required.");
                     return response;
                 }
@@ -94,7 +88,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 var chatMessage = new ChatMessage
                 {
-                    AccountId = accountId,
+                    AccountId = account.Id,
                     FoodEntryId = request.FoodEntryId,
                     Content = request.Content,
                     Role = messageRole,
@@ -110,50 +104,43 @@ namespace NutritionAmbition.Backend.API.Services
                 
                 var messageId = await _chatMessageRepository.AddAsync(chatMessage);
                 _logger.LogInformation("Successfully logged chat message with ID {MessageId} for account {AccountId}", 
-                    messageId, accountId);
+                    messageId, account);
                     
                 chatMessage.Id = messageId;
                 response.Message = chatMessage;
-                response.AnonymousAccountId = accountId;
                 response.IsSuccess = true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error logging chat message for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
+                    account, ex.Message);
                 response.AddError("Failed to log chat message.");
             }
 
             return response;
         }
 
-        public async Task<GetChatMessagesResponse> GetChatMessagesAsync(string accountId, GetChatMessagesRequest request)
+        public async Task<GetChatMessagesResponse> GetChatMessagesAsync(Account account, GetChatMessagesRequest request)
         {
             var response = new GetChatMessagesResponse();
 
             try
             {
                 _logger.LogInformation("Getting chat messages for account {AccountId} on date {LoggedDate}", 
-                    accountId, request.LoggedDateUtc);
+                    account, request.LoggedDateUtc);
                     
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot get messages: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
-
+             
                 if (request.LoggedDateUtc == default)
                 {
-                    _logger.LogWarning("Cannot get messages: LoggedDateUtc is not specified for account {AccountId}", accountId);
+                    _logger.LogWarning("Cannot get messages: LoggedDateUtc is not specified for account {AccountId}", account);
                     response.AddError("Logged date is required.");
                     return response;
                 }
 
-                var messages = await _chatMessageRepository.GetByDateAsync(accountId, request.LoggedDateUtc);
+                var messages = await _chatMessageRepository.GetByDateAsync(account.Id, request.LoggedDateUtc);
                 
                 _logger.LogInformation("Retrieved {Count} chat messages for account {AccountId} on date {LoggedDate}", 
-                    messages.Count, accountId, request.LoggedDateUtc);
+                    messages.Count, account, request.LoggedDateUtc);
                     
                 response.Messages = messages;
                 response.IsSuccess = true;
@@ -161,7 +148,7 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting chat messages for account {AccountId} on date {LoggedDate}: {ErrorMessage}", 
-                    accountId, request.LoggedDateUtc, ex.Message);
+                    account, request.LoggedDateUtc, ex.Message);
                 response.AddError("Failed to retrieve chat messages.");
             }
 
@@ -183,13 +170,13 @@ namespace NutritionAmbition.Backend.API.Services
         /// <summary>
         /// Runs a conversation with OpenAI and handles tool calls if any are present.
         /// </summary>
-        /// <param name="accountId">The account ID for logging and repository calls</param>
+        /// <param name="account">The account ID for logging and repository calls</param>
         /// <param name="inputMessages">Messages to send to OpenAI</param>
         /// <param name="systemPrompt">The system prompt used in the conversation</param>
         /// <param name="userMessage">Optional original user message for logging context or tool prompt fallback</param>
         /// <returns>A fully populated BotMessageResponse with tool call handling completed</returns>
         private async Task<BotMessageResponse> RunConversationWithToolsAsync(
-            string accountId,
+            Account account,
             List<object> inputMessages,
             string systemPrompt,
             string? userMessage = null)
@@ -200,7 +187,7 @@ namespace NutritionAmbition.Backend.API.Services
             {
                 // Get today's messages to find the last assistant message (for response continuity)
                 var today = DateTime.UtcNow.Date;
-                var todayMessages = await _chatMessageRepository.GetByDateAsync(accountId, today);
+                var todayMessages = await _chatMessageRepository.GetByDateAsync(account.Id, today);
                 var lastAssistantMessage = todayMessages
                     .Where(m => m.Role == MessageRoleTypes.Assistant && !string.IsNullOrEmpty(m.ResponseId))
                     .OrderByDescending(m => m.LoggedDateUtc)
@@ -212,7 +199,7 @@ namespace NutritionAmbition.Backend.API.Services
                 if (userMessage?.ToLowerInvariant().Contains("goal") == true || 
                     (systemPrompt.Contains("wants to discuss") && systemPrompt.Contains("goals")))
                 {
-                    _logger.LogInformation("Detected goal-setting intent — switching to GoalSettingTemplate for account {AccountId}", accountId);
+                    _logger.LogInformation("Detected goal-setting intent — switching to GoalSettingTemplate for account {AccountId}", account);
                     systemPrompt = SystemPrompts.GoalSettingTemplate;
                     
                     // Update the system message in inputMessages if it exists
@@ -229,7 +216,7 @@ namespace NutritionAmbition.Backend.API.Services
                     }
                     
                     // Add a context note
-                    await LogMessageAsync(accountId, new LogChatMessageRequest
+                    await LogMessageAsync(account, new LogChatMessageRequest
                     {
                         Content = "Entering Goal Setting Mode",
                         Role = OpenAiConstants.ContextNoteLiteral
@@ -246,14 +233,14 @@ namespace NutritionAmbition.Backend.API.Services
                 if (!response.IsSuccess)
                 {
                     _logger.LogWarning("OpenAI Responses API returned error for account {AccountId}: {ErrorMessage}", 
-                        accountId, response.Errors.FirstOrDefault());
+                        account, response.Errors.FirstOrDefault());
                     return response;
                 }
 
                 // Check if we have any tool calls to process
                 if (response.ToolCalls != null && response.ToolCalls.Count > 0)
                 {
-                    _logger.LogInformation("Processing {Count} tool calls for account {AccountId}", response.ToolCalls.Count, accountId);
+                    _logger.LogInformation("Processing {Count} tool calls for account {AccountId}", response.ToolCalls.Count, account);
                     
                     // Dictionary to store tool outputs
                     var toolOutputs = new Dictionary<string, string>();
@@ -265,7 +252,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                         // Log the tool call
                         var toolLogResponse = await LogMessageAsync(
-                            accountId,
+                            account,
                             new LogChatMessageRequest
                             {
                                 Content = toolCall.Function.ArgumentsJson,
@@ -276,7 +263,7 @@ namespace NutritionAmbition.Backend.API.Services
                         if (!toolLogResponse.IsSuccess)
                         {
                             _logger.LogWarning("Failed to log tool call for account {AccountId}: {ErrorMessage}", 
-                                accountId, toolLogResponse.Errors.FirstOrDefault());
+                                account, toolLogResponse.Errors.FirstOrDefault());
                             response.AddError($"Failed to log tool call: {toolCall.Function.Name}");
                             return response;
                         }
@@ -288,13 +275,13 @@ namespace NutritionAmbition.Backend.API.Services
                             // Execute the tool
                             _logger.LogDebug("Executing tool: {ToolName}", toolCall.Function.Name);
                             var toolOutput = await _assistantToolHandlerService.HandleToolCallAsync(
-                                accountId,
+                                account,
                                 toolCall.Function.Name,
                                 toolCall.Function.ArgumentsJson
                             );
 
                             // Log the tool output
-                            await LogMessageAsync(accountId, new LogChatMessageRequest { Content = toolOutput, Role = OpenAiConstants.ToolRole });
+                            await LogMessageAsync(account, new LogChatMessageRequest { Content = toolOutput, Role = OpenAiConstants.ToolRole });
 
                             // Store the tool output
                             toolOutputs.Add(toolCall.Id, toolOutput);
@@ -303,7 +290,7 @@ namespace NutritionAmbition.Backend.API.Services
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Error executing tool {ToolName} for account {AccountId}", 
-                                toolCall.Function.Name, accountId);
+                                toolCall.Function.Name, account);
                             response.AddError($"Failed to execute tool: {toolCall.Function.Name}");
                             return response;
                         }
@@ -313,13 +300,13 @@ namespace NutritionAmbition.Backend.API.Services
                     if (toolOutputs.Count > 0)
                     {
                         _logger.LogInformation("Submitting {Count} tool outputs for account {AccountId}", 
-                            toolOutputs.Count, accountId);
+                            toolOutputs.Count, account);
 
                         try
                         {
                             // Get the final response with tool outputs
                             var finalResponse = await _openAiResponsesService.SubmitToolOutputsAsync(
-                                accountId,
+                                account.Id,
                                 response,
                                 toolOutputs,
                                 _systemPromptResolver.GetPromptForToolContext(response.ToolCalls),
@@ -329,7 +316,7 @@ namespace NutritionAmbition.Backend.API.Services
                             if (!finalResponse.IsSuccess)
                             {
                                 _logger.LogWarning("Failed to submit tool outputs for account {AccountId}: {ErrorMessage}", 
-                                    accountId, finalResponse.Errors.FirstOrDefault());
+                                    account, finalResponse.Errors.FirstOrDefault());
                                 // Don't return here, continue with the original response
                             }
                             else
@@ -340,7 +327,7 @@ namespace NutritionAmbition.Backend.API.Services
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Error submitting tool outputs for account {AccountId}", accountId);
+                            _logger.LogError(ex, "Error submitting tool outputs for account {AccountId}", account);
                             // Don't return here, continue with the original response
                         }
                     }
@@ -349,10 +336,10 @@ namespace NutritionAmbition.Backend.API.Services
                 // Log the assistant's message if it exists
                 if (!string.IsNullOrEmpty(response.Message))
                 {
-                    _logger.LogInformation("Logging assistant message for account {AccountId}", accountId);
+                    _logger.LogInformation("Logging assistant message for account {AccountId}", account);
 
                     var assistantLogResponse = await LogMessageAsync(
-                        accountId,
+                        account,
                         new LogChatMessageRequest
                         {
                             Content = response.Message,
@@ -364,7 +351,7 @@ namespace NutritionAmbition.Backend.API.Services
                     if (!assistantLogResponse.IsSuccess)
                     {
                         _logger.LogWarning("Failed to log assistant message for account {AccountId}: {ErrorMessage}", 
-                            accountId, assistantLogResponse.Errors.FirstOrDefault());
+                            account, assistantLogResponse.Errors.FirstOrDefault());
                         response.AddError("Failed to log assistant message.");
                         return response;
                     }
@@ -373,7 +360,7 @@ namespace NutritionAmbition.Backend.API.Services
                 }
                 else if (response.ToolCalls == null || response.ToolCalls.Count == 0)
                 {
-                    _logger.LogWarning("No message or tool calls to log for account {AccountId}", accountId);
+                    _logger.LogWarning("No message or tool calls to log for account {AccountId}", account);
                     response.AddError("No valid response content to log.");
                     return response;
                 }
@@ -383,33 +370,27 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error running conversation with tools for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
+                    account, ex.Message);
                 response.AddError("Failed to run conversation with tools.");
             }
 
             return response;
         }
 
-        public async Task<ClearChatMessagesResponse> ClearChatMessagesAsync(string accountId, ClearChatMessagesRequest request)
+        public async Task<ClearChatMessagesResponse> ClearChatMessagesAsync(Account account, ClearChatMessagesRequest request)
         {
             var response = new ClearChatMessagesResponse();
 
             try
             {
                 _logger.LogInformation("Clearing chat messages for account {AccountId} on date {LoggedDate}", 
-                    accountId, request.LoggedDateUtc);
+                    account, request.LoggedDateUtc);
                     
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot clear messages: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
 
-                long deletedCount = await _chatMessageRepository.DeleteByDateAsync(accountId, request.LoggedDateUtc);
+                long deletedCount = await _chatMessageRepository.DeleteByDateAsync(account.Id, request.LoggedDateUtc);
                 
                 _logger.LogInformation("Successfully deleted {Count} chat messages for account {AccountId} on date {LoggedDate}", 
-                    deletedCount, accountId, request.LoggedDateUtc);
+                    deletedCount, account, request.LoggedDateUtc);
                     
                 response.MessagesDeleted = deletedCount;
                 response.IsSuccess = true;
@@ -417,38 +398,31 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error clearing chat messages for account {AccountId} on date {LoggedDate}: {ErrorMessage}", 
-                    accountId, request.LoggedDateUtc, ex.Message);
+                    account, request.LoggedDateUtc, ex.Message);
                 response.AddError("Failed to clear chat messages.");
             }
 
             return response;
         }
 
-        public async Task<BotMessageResponse> RunResponsesConversationAsync(string accountId, string message)
+        public async Task<BotMessageResponse> RunResponsesConversationAsync(Account account, string message)
         {
             var response = new BotMessageResponse();
 
             try
             {
-                _logger.LogInformation("Running responses conversation for account {AccountId}", accountId);
-
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot run conversation: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
+                _logger.LogInformation("Running responses conversation for account {AccountId}", account);
 
                 if (string.IsNullOrEmpty(message))
                 {
-                    _logger.LogWarning("Cannot run conversation: Message is empty for account {AccountId}", accountId);
+                    _logger.LogWarning("Cannot run conversation: Message is empty for account {AccountId}", account);
                     response.AddError("Message is required.");
                     return response;
                 }
 
                 // Log the user's message first
                 var userMessageLogResponse = await LogMessageAsync(
-                    accountId,
+                    account,
                     new LogChatMessageRequest
                     {
                         Content = message,
@@ -459,12 +433,12 @@ namespace NutritionAmbition.Backend.API.Services
                 if (!userMessageLogResponse.IsSuccess)
                 {
                     _logger.LogWarning("Failed to log user message for account {AccountId}: {ErrorMessage}", 
-                        accountId, userMessageLogResponse.Errors.FirstOrDefault());
+                        account, userMessageLogResponse.Errors.FirstOrDefault());
                     response.AddError("Failed to log user message.");
                     return response;
                 }
 
-                _logger.LogInformation("Successfully logged user message for account {AccountId}", accountId);
+                _logger.LogInformation("Successfully logged user message for account {AccountId}", account);
 
                 // Get system prompt from default initially
                 string systemPrompt = SystemPrompts.DefaultNutritionAssistant;
@@ -477,12 +451,12 @@ namespace NutritionAmbition.Backend.API.Services
                 };
 
                 // Run the conversation with the OpenAI Responses API
-                response = await RunConversationWithToolsAsync(accountId, inputMessages, systemPrompt, message);
+                response = await RunConversationWithToolsAsync(account, inputMessages, systemPrompt, message);
 
                 if (!response.IsSuccess)
                 {
                     _logger.LogWarning("OpenAI Responses API returned error for account {AccountId}: {ErrorMessage}", 
-                        accountId, response.Errors.FirstOrDefault());
+                        account, response.Errors.FirstOrDefault());
                     return response;
                 }
 
@@ -491,32 +465,25 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error running responses conversation for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
+                    account, ex.Message);
                 response.AddError("Failed to run conversation.");
             }
 
             return response;
         }
 
-        public async Task<BotMessageResponse> RunFocusInChatAsync(string accountId, FocusInChatRequest request)
+        public async Task<BotMessageResponse> RunFocusInChatAsync(Account account, FocusInChatRequest request)
         {
             var response = new BotMessageResponse();
 
             try
             {
                 _logger.LogInformation("Running focus-in-chat for account {AccountId} with focus: {FocusText}", 
-                    accountId, request.FocusText);
-
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot run focus-in-chat: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
+                    account, request.FocusText);
 
                 if (string.IsNullOrEmpty(request.FocusText))
                 {
-                    _logger.LogWarning("Cannot run focus-in-chat: Focus text is empty for account {AccountId}", accountId);
+                    _logger.LogWarning("Cannot run focus-in-chat: Focus text is empty for account {AccountId}", account);
                     response.AddError("Focus text is required.");
                     return response;
                 }
@@ -526,7 +493,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 // Log the system message first
                 await LogMessageAsync(
-                    accountId,
+                    account,
                     new LogChatMessageRequest
                     {
                         Content = systemPrompt,
@@ -539,7 +506,7 @@ namespace NutritionAmbition.Backend.API.Services
                 string contextNote = $"Focusing on: {request.FocusText}";
 
                 await LogMessageAsync(
-                    accountId,
+                    account,
                     new LogChatMessageRequest
                     {
                         Content = contextNote,
@@ -555,12 +522,12 @@ namespace NutritionAmbition.Backend.API.Services
                 };
 
                 // Run the conversation with the OpenAI Responses API
-                response = await RunConversationWithToolsAsync(accountId, inputMessages, systemPrompt, userMessage);
+                response = await RunConversationWithToolsAsync(account, inputMessages, systemPrompt, userMessage);
 
                 if (!response.IsSuccess)
                 {
                     _logger.LogWarning("OpenAI Responses API returned error for focus-in-chat for account {AccountId}: {ErrorMessage}", 
-                        accountId, response.Errors.FirstOrDefault());
+                        account, response.Errors.FirstOrDefault());
                     return response;
                 }
 
@@ -569,32 +536,25 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error running focus-in-chat for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
+                    account, ex.Message);
                 response.AddError("Failed to run focus-in-chat conversation.");
             }
 
             return response;
         }
 
-        public async Task<BotMessageResponse> RunLearnMoreAboutAsync(string accountId, LearnMoreAboutRequest request)
+        public async Task<BotMessageResponse> RunLearnMoreAboutAsync(Account account, LearnMoreAboutRequest request)
         {
             var response = new BotMessageResponse();
 
             try
             {
                 _logger.LogInformation("Running learn-more-about for account {AccountId} with topic: {Topic}", 
-                    accountId, request.Topic);
-
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    _logger.LogWarning("Cannot run learn-more-about: Account ID is null or empty");
-                    response.AddError("Account ID is required.");
-                    return response;
-                }
+                    account, request.Topic);
 
                 if (string.IsNullOrEmpty(request.Topic))
                 {
-                    _logger.LogWarning("Cannot run learn-more-about: Topic is empty for account {AccountId}", accountId);
+                    _logger.LogWarning("Cannot run learn-more-about: Topic is empty for account {AccountId}", account);
                     response.AddError("Topic is required.");
                     return response;
                 }
@@ -604,7 +564,7 @@ namespace NutritionAmbition.Backend.API.Services
 
                 // Log the system message first
                 await LogMessageAsync(
-                    accountId,
+                    account,
                     new LogChatMessageRequest
                     {
                         Content = systemPrompt,
@@ -617,7 +577,7 @@ namespace NutritionAmbition.Backend.API.Services
                 string contextNote = $"Learning more about: {request.Topic}";
 
                 await LogMessageAsync(
-                    accountId,
+                    account,
                     new LogChatMessageRequest
                     {
                         Content = contextNote,
@@ -633,12 +593,12 @@ namespace NutritionAmbition.Backend.API.Services
                 };
 
                 // Run the conversation with the OpenAI Responses API
-                response = await RunConversationWithToolsAsync(accountId, inputMessages, systemPrompt, userMessage);
+                response = await RunConversationWithToolsAsync(account, inputMessages, systemPrompt, userMessage);
 
                 if (!response.IsSuccess)
                 {
                     _logger.LogWarning("OpenAI Responses API returned error for learn-more-about for account {AccountId}: {ErrorMessage}", 
-                        accountId, response.Errors.FirstOrDefault());
+                        account, response.Errors.FirstOrDefault());
                     return response;
                 }
 
@@ -647,7 +607,7 @@ namespace NutritionAmbition.Backend.API.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error running learn-more-about for account {AccountId}: {ErrorMessage}", 
-                    accountId, ex.Message);
+                    account, ex.Message);
                 response.AddError("Failed to run learn-more-about conversation.");
             }
 
