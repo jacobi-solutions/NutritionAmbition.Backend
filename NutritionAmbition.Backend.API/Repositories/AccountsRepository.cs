@@ -34,9 +34,9 @@ namespace NutritionAmbition.Backend.API.Repositories
             return account;
         }
 
-        public async Task<bool> UpdateAsync(string id, Account updatedAccount)
+        public async Task<bool> UpdateAsync(Account updatedAccount)
         {
-            var result = await _collection.ReplaceOneAsync(a => a.Id == id, updatedAccount);
+            var result = await _collection.ReplaceOneAsync(a => a.Id == updatedAccount.Id, updatedAccount);
             return result.ModifiedCount > 0;
         }
 

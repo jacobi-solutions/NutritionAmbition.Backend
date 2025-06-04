@@ -89,7 +89,7 @@ namespace NutritionAmbition.Backend.API.Services
                 account.UserProfile.WeightLbs = request.WeightLbs;
                 account.UserProfile.ActivityLevel = request.ActivityLevel;
 
-                await _accountsService.UpdateAccountAsync(account.Id, account);
+                await _accountsService.UpdateAccountAsync(account);
 
                 response.IsSuccess = true;
                 _logger.LogInformation("Successfully saved user profile for account {AccountId}", account.Id);

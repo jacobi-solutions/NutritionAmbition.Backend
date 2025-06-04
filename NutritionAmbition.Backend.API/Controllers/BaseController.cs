@@ -44,11 +44,12 @@ namespace NutritionAmbition.Backend.API.Controllers
                     return;
                 }
 
-                // Get account using the Google Auth User ID
-                _account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
+                var email = User?.Claims.FirstOrDefault(x => x.Type == "email")?.Value;
+
+                _account = await _accountsService.GetOrCreateByGoogleAuthIdAsync(googleAuthUserId, email);
                 if (_account == null)
                 {
-                    _logger.LogWarning("Account not found for Google Auth User ID: {GoogleAuthUserId}", googleAuthUserId);
+                    _logger.LogWarning("Failed to get or create account for Google Auth User ID: {GoogleAuthUserId}", googleAuthUserId);
                     context.Result = Unauthorized();
                     return;
                 }
@@ -58,45 +59,6 @@ namespace NutritionAmbition.Backend.API.Controllers
             await next();
         }
 
-        /// <summary>
-        /// Initializes the controller by fetching the current account based on the JWT token.
-        /// This method is kept for compatibility but is not needed with the new OnActionExecutionAsync approach.
-        /// </summary>
-        /// <returns>True if the account was loaded successfully, false otherwise</returns>
-        [Obsolete("Use of this method is not needed as account initialization happens automatically in OnActionExecutionAsync")]
-        protected async Task<bool> InitializeAsync()
-        {
-            try
-            {
-                // If _account is already initialized, return true
-                if (_account != null)
-                {
-                    return true;
-                }
-
-                // Extract user_id from claims
-                var googleAuthUserId = User?.Claims.FirstOrDefault(x => x.Type == "user_id")?.Value;
-                if (string.IsNullOrEmpty(googleAuthUserId))
-                {
-                    _logger.LogWarning("Missing Google Auth User ID in token");
-                    return false;
-                }
-
-                // Get or create account using the Google Auth User ID
-                _account = await _accountsService.GetAccountByGoogleAuthIdAsync(googleAuthUserId);
-                if (_account == null)
-                {
-                    _logger.LogWarning("Account not found for Google Auth User ID: {GoogleAuthUserId}", googleAuthUserId);
-                    return false;
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error initializing controller and loading account");
-                return false;
-            }
-        }
+        
     }
 } 

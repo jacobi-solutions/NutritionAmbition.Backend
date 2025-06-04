@@ -13,12 +13,11 @@ namespace NutritionAmbition.Backend.API.Services
     public interface IAccountsService
     {
         Task<Account?> GetAccountByIdAsync(string id);
-        Task<Account> CreateAccountAsync(Account account);
-        Task<bool> UpdateAccountAsync(string id, Account updatedAccount);
+        Task<bool> UpdateAccountAsync(Account updatedAccount);
         Task<bool> DeleteAccountAsync(string id);
         Task<AccountResponse> CreateAccountAsync(AccountRequest request, string googleAuthUserId);
         Task<Account> GetAccountByGoogleAuthIdAsync(string googleAuthUserId);
-        Task<Account> CreateAnonymousAccountAsync();
+        Task<Account> GetOrCreateByGoogleAuthIdAsync(string googleAuthUserId, string email);
     }
 
     public class AccountsService : IAccountsService
@@ -54,25 +53,12 @@ namespace NutritionAmbition.Backend.API.Services
             }
         }
 
-        public async Task<Account> CreateAccountAsync(Account account)
+        public async Task<bool> UpdateAccountAsync(Account updatedAccount)
         {
             var response = new Response();
             try
             {
-                return await _accountsRepo.CreateAsync(account);
-            }
-            catch (Exception ex)
-            {
-                response.AddError(ex.Message, "EXCEPTION");
-                return null;
-            }
-        }
-        public async Task<bool> UpdateAccountAsync(string id, Account updatedAccount)
-        {
-            var response = new Response();
-            try
-            {
-                return await _accountsRepo.UpdateAsync(id, updatedAccount);
+                return await _accountsRepo.UpdateAsync(updatedAccount);
             }
             catch (Exception ex)
             {
@@ -133,31 +119,56 @@ namespace NutritionAmbition.Backend.API.Services
             return await _accountsRepo.GetAccountByGoogleAuthUserIdAsync(googleAuthUserId);
         }
 
-        /// <summary>
-        /// Creates a new anonymous account without requiring Firebase authentication
-        /// </summary>
-        /// <returns>The created anonymous account</returns>
-        public async Task<Account> CreateAnonymousAccountAsync()
+        
+
+        public async Task<Account> GetOrCreateByGoogleAuthIdAsync(string googleAuthUserId, string email = null)
         {
+            if (string.IsNullOrEmpty(googleAuthUserId))
+            {
+                _logger.LogWarning("Empty Google Auth User ID provided");
+                return null;
+            }
+
             try
             {
-                // Generate a unique name for the anonymous user
-                string anonymousName = $"AnonymousUser_{Guid.NewGuid().ToString().Substring(0, 8)}";
+                var existingAccount = await _accountsRepo.GetAccountByGoogleAuthUserIdAsync(googleAuthUserId);
 
-                var account = new Account
+                if (existingAccount != null)
                 {
-                    Name = anonymousName,
-                    Email = $"{anonymousName}@anonymous.user",
-                    GoogleAuthUserId = null, // No Google auth for anonymous users
-                    IsAnonymousUser = true
+                    // Upgrade account if it was anonymous and now has email
+                    if (existingAccount.IsAnonymousUser && !string.IsNullOrEmpty(email))
+                    {
+                        _logger.LogInformation("Upgrading anonymous account to full account with email: {Email}", email);
+                        existingAccount.Email = email;
+                        existingAccount.IsAnonymousUser = false;
+                        await _accountsRepo.UpdateAsync(existingAccount);
+                    }
+
+                    return existingAccount;
+                }
+
+                // New account
+                var isAnonymous = string.IsNullOrEmpty(email);
+                var name = isAnonymous
+                    ? $"AnonymousUser_{Guid.NewGuid().ToString().Substring(0, 8)}"
+                    : email.Split('@')[0];
+                email = isAnonymous
+                    ? $"{name}@anonymous.user"
+                    : email;
+
+                var newAccount = new Account
+                {
+                    Name = name,
+                    Email = email,
+                    GoogleAuthUserId = googleAuthUserId,
+                    IsAnonymousUser = isAnonymous
                 };
 
-                return await _accountsRepo.CreateAsync(account);
+                return await _accountsRepo.CreateAsync(newAccount);
             }
             catch (Exception ex)
             {
-                // Log error but propagate exception to middleware for handling
-                _logger.LogError(ex, "Error creating anonymous account");
+                _logger.LogError(ex, "Error in GetOrCreateByGoogleAuthIdAsync for Google Auth User ID: {GoogleAuthUserId}", googleAuthUserId);
                 throw;
             }
         }
